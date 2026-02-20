@@ -60,7 +60,7 @@ def create_approval_cell(
 
 
 def adjust_cell_queue_markers(parent: ClaudeCodeMagics) -> None:
-    """Supplement markers for cells in queue now that we have more complete information."""
+    """Finalize cell markers after all tool calls complete."""
     if parent.shell is None:
         return
 
@@ -68,18 +68,10 @@ def adjust_cell_queue_markers(parent: ClaudeCodeMagics) -> None:
     if not cell_queue:
         return
 
-    queue_length = len(cell_queue)
+    # Keep the [CC] marker comment — it was already set in create_approval_cell
     for i, cell_info in enumerate(cell_queue):
-        original_code = cell_info["original_code"]
-        marker_id = cell_info["marker_id"]
-
-        # No decorative header - use original code as-is
-        marked_code = original_code
-        cell_info["code"] = marked_code
-        cell_info["marker"] = ""
-
         if i == 0:
-            parent.shell.user_ns["_claude_pending_input"] = marked_code
+            parent.shell.user_ns["_claude_pending_input"] = cell_info["code"]
 
 
 def process_cell_queue(parent: ClaudeCodeMagics) -> None:
