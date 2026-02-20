@@ -34,6 +34,13 @@ select = ["E", "F", "W", "I", "B", "N", "UP", "ASYNC", "S", "PTH"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
+# Ported from upstream — string literals in prompts/help exceed 120 chars
+"src/jupyter_cc_magic/prompt.py" = ["E501", "S110"]
+"src/jupyter_cc_magic/constants.py" = ["E501"]
+"src/jupyter_cc_magic/magics.py" = ["E501", "F841", "S110"]
+"src/jupyter_cc_magic/integration.py" = ["E501", "F841"]
+"src/jupyter_cc_magic/history.py" = ["E501"]
+"src/jupyter_cc_magic/client.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
