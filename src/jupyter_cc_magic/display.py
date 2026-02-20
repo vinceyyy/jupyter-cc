@@ -3,12 +3,12 @@ Rich streaming display for Claude responses.
 
 In Jupyter notebooks, uses an ipywidgets VBox with:
   - A CSS spinner widget (pure client-side animation, separate from content)
-  - An Output widget for content (updated via clear_output + display from main thread)
+  - An HTML widget for content (value set directly from main thread polling loop)
 
 All rendering happens in the main thread's polling loop (display.poll()) because
 background threads cannot reliably update Jupyter output. The background SDK thread
 only mutates state (text_blocks, tool_calls, etc.); the main thread reads that
-state and renders it.
+state and renders it via widget.value assignment.
 
 In terminals, uses Rich Live for ANSI-based live rendering.
 Falls back to plain print() if neither works.
@@ -130,7 +130,7 @@ class StreamingDisplay:
 
     Jupyter mode:
       - CSS spinner widget (always animating while running, separate from content)
-      - ipywidgets.Output for content (updated by main-thread poll() calls)
+      - ipywidgets.HTML for content (value set by main-thread poll() calls)
       - VBox stacks spinner above content
 
     Terminal mode:
@@ -160,7 +160,7 @@ class StreamingDisplay:
 
         # Jupyter widgets (created in start())
         self._spinner_widget: Any | None = None  # ipywidgets.HTML
-        self._output_widget: Any | None = None  # ipywidgets.Output
+        self._content_widget: Any | None = None  # ipywidgets.HTML
         self._container: Any | None = None  # ipywidgets.VBox
 
     @property
@@ -177,9 +177,9 @@ class StreamingDisplay:
 
                 # CSS spinner: runs entirely in the browser, always animated
                 self._spinner_widget = widgets.HTML(value=_CSS_SPINNER_HTML)
-                # Output widget: content rendered via clear_output + display in poll()
-                self._output_widget = widgets.Output()
-                self._container = widgets.VBox([self._spinner_widget, self._output_widget])
+                # Content: Rich-rendered HTML, updated via .value in poll()
+                self._content_widget = widgets.HTML(value="")
+                self._container = widgets.VBox([self._spinner_widget, self._content_widget])
                 display(self._container)
             except Exception:
                 logger.debug("ipywidgets unavailable, falling back to print()", exc_info=True)
@@ -202,23 +202,18 @@ class StreamingDisplay:
 
     def poll(self) -> None:
         """
-        Render current state to the Jupyter Output widget.
+        Render current state to the Jupyter content widget.
 
         Must be called from the main IPython thread (typically in a polling loop).
-        Uses clear_output(wait=True) + display(HTML(...)) for flicker-free updates.
+        Sets widgets.HTML.value directly — this triggers an immediate comm message
+        because the main thread is yielding between polling iterations.
         No-op in terminal or fallback mode.
         """
-        if not self._jupyter or self._output_widget is None:
+        if not self._jupyter or self._content_widget is None:
             return
         self._spinner_tick = (self._spinner_tick + 1) % len(_SPINNER_FRAMES)
         try:
-            from IPython.display import HTML
-            from IPython.display import clear_output as ipy_clear
-            from IPython.display import display as ipy_display
-
-            with self._output_widget:
-                ipy_clear(wait=True)
-                ipy_display(HTML(self._render_html_string()))
+            self._content_widget.value = self._render_html_string()
         except Exception:
             logger.debug("Error rendering Jupyter content", exc_info=True)
 
@@ -228,8 +223,12 @@ class StreamingDisplay:
             # Hide the CSS spinner
             if self._spinner_widget is not None:
                 self._spinner_widget.layout.display = "none"
-            # Final content render
-            self.poll()
+            # Final content render (directly set value, don't go through poll)
+            if self._content_widget is not None:
+                try:
+                    self._content_widget.value = self._render_html_string()
+                except Exception:
+                    logger.debug("Error rendering final Jupyter content", exc_info=True)
             return
 
         if self._live is not None:
