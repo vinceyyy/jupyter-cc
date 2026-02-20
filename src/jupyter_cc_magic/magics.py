@@ -425,6 +425,15 @@ Your client's request is <request>{prompt}</request>
         if self._client_manager is not None and self._client_manager.session_id:
             options.resume = self._client_manager.session_id
 
+        # Create and start the display in the **main thread** so the IPython
+        # DisplayHandle is associated with the current cell output.  The
+        # background thread (anyio.run) only mutates display state; the
+        # display's own refresh thread pushes updates to the notebook.
+        from .display import StreamingDisplay
+
+        display = StreamingDisplay(verbose=verbose)
+        display.start()
+
         # Run the query with streaming
         # Simple approach: always use a thread to avoid anyio.run() nesting issues
         exception_queue: queue.Queue[Exception] = queue.Queue()
@@ -434,7 +443,7 @@ Your client's request is <request>{prompt}</request>
                 # This always works because the thread has its own context
                 # anyio.run() takes a no-arg async callable, so wrap with a lambda
                 anyio.run(
-                    lambda: self._run_streaming_query(enhanced_prompt, options, verbose),
+                    lambda: self._run_streaming_query(enhanced_prompt, options, verbose, display),
                 )
             except Exception as e:
                 exception_queue.put(e)
@@ -468,6 +477,9 @@ Your client's request is <request>{prompt}</request>
             # Restore original handler
             if original_handler is not None:
                 signal.signal(signal.SIGINT, original_handler)
+            # Stop the display after the thread finishes — safe because
+            # thread.join() has completed (or we were interrupted).
+            display.stop()
 
         # Check for exceptions
         if not exception_queue.empty():
@@ -498,10 +510,11 @@ Your client's request is <request>{prompt}</request>
         prompt: str | list[dict[str, Any]],
         options: ClaudeAgentOptions,
         verbose: bool,
+        display: Any = None,
     ) -> None:
         """Run Claude query with real-time message streaming."""
         self._config_manager.is_current_execution_verbose = verbose
-        await run_streaming_query(self, prompt, options, verbose)
+        await run_streaming_query(self, prompt, options, verbose, display=display)
         self._config_manager.is_current_execution_verbose = False
 
     def _claude_continue_impl(self, request_id: str, additional_prompt: str = "", verbose: bool = False) -> str:

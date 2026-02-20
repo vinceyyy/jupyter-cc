@@ -2,13 +2,20 @@
 Rich streaming display for Claude responses.
 
 In Jupyter notebooks, uses IPython.display.DisplayHandle for in-place updates.
+A dedicated refresh thread animates the spinner so the display never looks frozen.
 In terminals, uses Rich Live for ANSI-based live rendering.
 Falls back to plain print() if neither works.
+
+IMPORTANT: In Jupyter, the StreamingDisplay must be created and start()'d from the
+**main IPython thread** (the cell execution context). get_ipython() is thread-local,
+so background threads cannot create DisplayHandles that are associated with the
+correct cell output. After start(), the display can be safely updated from any thread.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from .constants import EXECUTE_PYTHON_TOOL_NAME
@@ -18,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 # Braille spinner frames for active tool calls — cycled on each render
 _SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+# How often the Jupyter refresh thread redraws (seconds).
+# 6-7 FPS is enough for a smooth spinner without excessive overhead.
+_JUPYTER_REFRESH_INTERVAL = 0.15
 
 
 def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -108,14 +119,19 @@ class StreamingDisplay:
     Streaming display for Claude responses.
 
     In Jupyter notebooks: renders Rich Panel to HTML, updates in-place via
-    IPython DisplayHandle (thread-safe, works from background threads).
+    IPython DisplayHandle. A daemon refresh thread animates the spinner at
+    ~7 FPS so the UI never appears frozen between SDK events.
 
     In terminals: uses Rich Live for ANSI-based in-place rendering.
 
     Falls back to plain print() if neither works.
+
+    IMPORTANT: Must be created and start()'d from the main IPython thread so
+    that the DisplayHandle is associated with the correct notebook cell output.
+    After that, add_text / add_tool_call / etc. are safe to call from any thread.
     """
 
-    def __init__(self, *, verbose: bool = False) -> None:
+    def __init__(self, *, verbose: bool = False, jupyter: bool | None = None) -> None:
         self._verbose = verbose
         self._model: str | None = None
         self._text_blocks: list[str] = []
@@ -126,19 +142,37 @@ class StreamingDisplay:
         self._spinner_tick = 0
         self._live: Any | None = None  # rich.live.Live or None
         self._display_handle: Any | None = None  # IPython DisplayHandle or None
-        self._jupyter = False
+        # If jupyter is explicitly set, use that; otherwise auto-detect.
+        # Auto-detect only works from the main IPython thread (get_ipython()
+        # is thread-local). When creating for use in a background thread,
+        # pass jupyter=True/False explicitly from the main thread.
+        self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
         self._fallback = False  # True if Rich failed and we use plain print
 
+        # Jupyter periodic refresh state
+        self._dirty = False  # Set by event callbacks, consumed by refresh thread
+        self._stop_event: threading.Event | None = None
+        self._refresh_thread: threading.Thread | None = None
+
     def start(self) -> None:
-        """Start the live display."""
-        if is_in_jupyter_notebook():
+        """Start the live display. Must be called from the main IPython thread."""
+        if self._jupyter:
             try:
                 from IPython.display import display
 
-                self._jupyter = True
                 self._display_handle = display(self._render_html(), display_id=True)
+                # Start a daemon thread that periodically redraws (spinner animation).
+                # Only this thread calls _display_handle.update() to avoid races.
+                self._stop_event = threading.Event()
+                self._refresh_thread = threading.Thread(
+                    target=self._jupyter_periodic_refresh,
+                    daemon=True,
+                    name="jupyter-cc-display-refresh",
+                )
+                self._refresh_thread.start()
             except Exception:
                 logger.debug("IPython display unavailable, falling back to print()")
+                self._jupyter = False
                 self._fallback = True
             return
 
@@ -157,12 +191,20 @@ class StreamingDisplay:
 
     def stop(self) -> None:
         """Stop the live display, leaving final output visible."""
-        if self._jupyter and self._display_handle is not None:
-            try:
-                self._display_handle.update(self._render_html())
-            except Exception:
-                logger.debug("Error updating Jupyter display", exc_info=True)
-            self._display_handle = None
+        if self._jupyter:
+            # Shut down the periodic refresh thread
+            if self._stop_event is not None:
+                self._stop_event.set()
+            if self._refresh_thread is not None:
+                self._refresh_thread.join(timeout=2)
+                self._refresh_thread = None
+            # One final render to show the completed state
+            if self._display_handle is not None:
+                try:
+                    self._display_handle.update(self._render_html())
+                except Exception:
+                    logger.debug("Error updating Jupyter display", exc_info=True)
+                self._display_handle = None
             return
 
         if self._live is not None:
@@ -225,12 +267,11 @@ class StreamingDisplay:
             self._print_fallback_latest()
             return
 
-        if self._jupyter and self._display_handle is not None:
-            try:
-                self._spinner_tick = (self._spinner_tick + 1) % len(_SPINNER_FRAMES)
-                self._display_handle.update(self._render_html())
-            except Exception:
-                logger.debug("Error updating Jupyter display", exc_info=True)
+        if self._jupyter:
+            # In Jupyter mode, just mark dirty — the periodic refresh thread
+            # handles all _display_handle.update() calls to avoid races and
+            # to keep the spinner animated between SDK events.
+            self._dirty = True
             return
 
         if self._live is not None:
@@ -239,6 +280,21 @@ class StreamingDisplay:
                 self._live.update(self._render())
             except Exception:
                 logger.debug("Error refreshing Rich Live display", exc_info=True)
+
+    def _jupyter_periodic_refresh(self) -> None:
+        """Daemon thread: periodically redraws the Jupyter display for spinner animation."""
+        while self._stop_event is not None and not self._stop_event.wait(_JUPYTER_REFRESH_INTERVAL):
+            # Refresh when state changed (dirty) or when there are active tool calls (spinner)
+            has_active_tools = any(not e.completed for e in self._tool_calls)
+            if self._dirty or has_active_tools:
+                self._dirty = False
+                self._spinner_tick = (self._spinner_tick + 1) % len(_SPINNER_FRAMES)
+                try:
+                    if self._display_handle is not None:
+                        self._display_handle.update(self._render_html())
+                except Exception:
+                    logger.debug("Error in Jupyter periodic refresh", exc_info=True)
+                    break
 
     def _render(self) -> Any:
         """Build the Rich renderable for the current state."""
