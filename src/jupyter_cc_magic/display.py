@@ -1,14 +1,9 @@
 """
 Rich streaming display for Claude responses.
 
-In Jupyter notebooks, uses an ipywidgets VBox with:
-  - A CSS spinner widget (pure client-side animation, separate from content)
-  - An HTML widget for content (value set directly from main thread polling loop)
-
-All rendering happens in the main thread's polling loop (display.poll()) because
-background threads cannot reliably update Jupyter output. The background SDK thread
-only mutates state (text_blocks, tool_calls, etc.); the main thread reads that
-state and renders it via widget.value assignment.
+In Jupyter notebooks:
+  - Shows a CSS spinner while running (pure client-side animation)
+  - Renders the final result once after completion via IPython.display.HTML
 
 In terminals, uses Rich Live for ANSI-based live rendering.
 Falls back to plain print() if neither works.
@@ -24,10 +19,7 @@ from .integration import is_in_jupyter_notebook
 
 logger = logging.getLogger(__name__)
 
-# Braille spinner frames for active tool calls — cycled on each render
-_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-# Pure-CSS spinner shown above the content panel while running.
+# Pure-CSS spinner shown while running.
 # Runs entirely in the browser — no Python-side refresh needed.
 _CSS_SPINNER_HTML = (
     '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
@@ -39,6 +31,9 @@ _CSS_SPINNER_HTML = (
     "<style>@keyframes jcc-spin{0%{transform:rotate(0deg)}"
     "100%{transform:rotate(360deg)}}</style>"
 )
+
+# Braille spinner frames for active tool calls in terminal mode
+_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -126,12 +121,11 @@ class _ToolCallEntry:
 
 class StreamingDisplay:
     """
-    Streaming display for Claude responses.
+    Display for Claude responses.
 
     Jupyter mode:
-      - CSS spinner widget (always animating while running, separate from content)
-      - ipywidgets.HTML for content (value set by main-thread poll() calls)
-      - VBox stacks spinner above content
+      - CSS spinner while running (pure client-side, no Python refresh)
+      - Final result rendered once via IPython.display after completion
 
     Terminal mode:
       - Rich Live for ANSI-based in-place rendering
@@ -141,7 +135,6 @@ class StreamingDisplay:
 
     Must be created and start()'d from the main IPython thread.
     State-mutating methods (add_text, add_tool_call, etc.) are safe from any thread.
-    poll() must be called from the main thread periodically in Jupyter mode.
     """
 
     def __init__(self, *, verbose: bool = False, jupyter: bool | None = None) -> None:
@@ -158,15 +151,8 @@ class StreamingDisplay:
         self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
         self._fallback = False
 
-        # Jupyter widgets (created in start())
+        # Jupyter spinner widget (created in start())
         self._spinner_widget: Any | None = None  # ipywidgets.HTML
-        self._content_widget: Any | None = None  # ipywidgets.HTML
-        self._container: Any | None = None  # ipywidgets.VBox
-
-    @property
-    def is_jupyter(self) -> bool:
-        """Whether we're in Jupyter mode (caller should use poll() loop)."""
-        return self._jupyter
 
     def start(self) -> None:
         """Start the live display. Must be called from the main IPython thread."""
@@ -175,12 +161,8 @@ class StreamingDisplay:
                 import ipywidgets as widgets
                 from IPython.display import display
 
-                # CSS spinner: runs entirely in the browser, always animated
                 self._spinner_widget = widgets.HTML(value=_CSS_SPINNER_HTML)
-                # Content: Rich-rendered HTML, updated via .value in poll()
-                self._content_widget = widgets.HTML(value="")
-                self._container = widgets.VBox([self._spinner_widget, self._content_widget])
-                display(self._container)
+                display(self._spinner_widget)
             except Exception:
                 logger.debug("ipywidgets unavailable, falling back to print()", exc_info=True)
                 self._jupyter = False
@@ -200,35 +182,19 @@ class StreamingDisplay:
             logger.debug("Rich Live display unavailable, falling back to print()")
             self._fallback = True
 
-    def poll(self) -> None:
-        """
-        Render current state to the Jupyter content widget.
-
-        Must be called from the main IPython thread (typically in a polling loop).
-        Sets widgets.HTML.value directly — this triggers an immediate comm message
-        because the main thread is yielding between polling iterations.
-        No-op in terminal or fallback mode.
-        """
-        if not self._jupyter or self._content_widget is None:
-            return
-        self._spinner_tick = (self._spinner_tick + 1) % len(_SPINNER_FRAMES)
-        try:
-            self._content_widget.value = self._render_html_string()
-        except Exception:
-            logger.debug("Error rendering Jupyter content", exc_info=True)
-
     def stop(self) -> None:
-        """Stop the live display, leaving final output visible."""
+        """Stop the live display, render final output."""
         if self._jupyter:
-            # Hide the CSS spinner
+            # Hide the spinner
             if self._spinner_widget is not None:
                 self._spinner_widget.layout.display = "none"
-            # Final content render (directly set value, don't go through poll)
-            if self._content_widget is not None:
-                try:
-                    self._content_widget.value = self._render_html_string()
-                except Exception:
-                    logger.debug("Error rendering final Jupyter content", exc_info=True)
+            # Render final result
+            try:
+                from IPython.display import HTML, display
+
+                display(HTML(self._render_html_string()))
+            except Exception:
+                logger.debug("Error rendering final Jupyter content", exc_info=True)
             return
 
         if self._live is not None:
@@ -288,15 +254,13 @@ class StreamingDisplay:
     def _refresh(self) -> None:
         """Push the latest render to the display (terminal/fallback only).
 
-        In Jupyter mode this is a no-op — the main thread's poll() loop
-        handles all rendering.
+        In Jupyter mode this is a no-op — result is rendered once in stop().
         """
         if self._fallback:
             self._print_fallback_latest()
             return
 
         if self._jupyter:
-            # Rendering is handled by the main thread's poll() loop.
             return
 
         if self._live is not None:
@@ -356,7 +320,7 @@ class StreamingDisplay:
         return Panel(Group(*parts), title="Claude", border_style="blue", expand=True)
 
     def _render_html_string(self) -> str:
-        """Render content to an HTML string for the Jupyter Output widget."""
+        """Render content to an HTML string for Jupyter."""
         from rich.console import Console
 
         console = Console(record=True, width=120, force_jupyter=False, force_terminal=True)

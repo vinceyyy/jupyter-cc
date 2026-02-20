@@ -425,10 +425,9 @@ Your client's request is <request>{prompt}</request>
         if self._client_manager is not None and self._client_manager.session_id:
             options.resume = self._client_manager.session_id
 
-        # Create and start the display in the **main thread** so ipywidgets
-        # are associated with the current cell output.  The background thread
-        # (anyio.run) only mutates display state (text_blocks, tool_calls);
-        # the main thread renders via display.poll() in the loop below.
+        # Create display in the main thread so ipywidgets are associated
+        # with the current cell output. The background thread only mutates
+        # state; stop() renders the final result from the main thread.
         from .display import StreamingDisplay
 
         display = StreamingDisplay(verbose=verbose)
@@ -472,18 +471,8 @@ Your client's request is <request>{prompt}</request>
         # Install our handler temporarily
         try:
             original_handler = signal.signal(signal.SIGINT, interrupt_handler)
-            if display.is_jupyter:
-                # In Jupyter we must not block the main kernel thread.
-                # Widget comm messages are only delivered when the kernel
-                # processes IO, so we poll: let the thread run for a short
-                # interval, then render the current state from the main thread.
-                while thread.is_alive():
-                    thread.join(timeout=0.15)
-                    display.poll()
-            else:
-                thread.join()
+            thread.join()
         finally:
-            # Restore original handler
             if original_handler is not None:
                 signal.signal(signal.SIGINT, original_handler)
             display.stop()
