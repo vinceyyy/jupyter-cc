@@ -33,7 +33,7 @@ src = ["src"]
 select = ["E", "F", "W", "I", "B", "N", "UP", "ASYNC", "S", "PTH"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]
+"tests/**/*.py" = ["S101", "S603"]
 # Ported from upstream — string literals in prompts/help exceed 120 chars
 "src/jupyter_cc_magic/prompt.py" = ["E501", "S110"]
 "src/jupyter_cc_magic/constants.py" = ["E501"]
