@@ -1,15 +1,18 @@
 """
 Rich streaming display for Claude responses.
 
-In Jupyter notebooks, uses IPython.display.DisplayHandle for in-place updates.
-A dedicated refresh thread animates the spinner so the display never looks frozen.
+In Jupyter notebooks, uses ipywidgets.HTML for thread-safe in-place updates.
+A pure-CSS spinner runs independently to show the cell is active, while the
+content area updates as SDK events arrive. This avoids all the threading issues
+with IPython DisplayHandle (which loses cell association from background threads).
+
 In terminals, uses Rich Live for ANSI-based live rendering.
 Falls back to plain print() if neither works.
 
-IMPORTANT: In Jupyter, the StreamingDisplay must be created and start()'d from the
-**main IPython thread** (the cell execution context). get_ipython() is thread-local,
-so background threads cannot create DisplayHandles that are associated with the
-correct cell output. After start(), the display can be safely updated from any thread.
+IMPORTANT: In Jupyter, the StreamingDisplay must be created and start()'d from
+the main IPython thread so the widgets are displayed in the correct cell output.
+After start(), add_text / add_tool_call / etc. are safe to call from any thread
+because ipywidgets property assignments are thread-safe.
 """
 
 from __future__ import annotations
@@ -27,8 +30,21 @@ logger = logging.getLogger(__name__)
 _SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 # How often the Jupyter refresh thread redraws (seconds).
-# 6-7 FPS is enough for a smooth spinner without excessive overhead.
+# ~7 FPS — enough for a smooth braille spinner without excessive overhead.
 _JUPYTER_REFRESH_INTERVAL = 0.15
+
+# Pure-CSS spinner shown above the content panel while running.
+# Runs entirely in the browser — no Python-side refresh needed.
+_CSS_SPINNER_HTML = (
+    '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+    'font-family:sans-serif;font-size:13px;color:#888">'
+    '<div style="width:14px;height:14px;border:2px solid #e0e0e0;'
+    "border-top:2px solid #4a90d9;border-radius:50%;"
+    'animation:jcc-spin .8s linear infinite"></div>'
+    "<span>Running&hellip;</span></div>"
+    "<style>@keyframes jcc-spin{0%{transform:rotate(0deg)}"
+    "100%{transform:rotate(360deg)}}</style>"
+)
 
 
 def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -118,17 +134,20 @@ class StreamingDisplay:
     """
     Streaming display for Claude responses.
 
-    In Jupyter notebooks: renders Rich Panel to HTML, updates in-place via
-    IPython DisplayHandle. A daemon refresh thread animates the spinner at
-    ~7 FPS so the UI never appears frozen between SDK events.
+    Jupyter mode:
+      - CSS spinner widget (always animating, separate from content)
+      - ipywidgets.HTML content widget (Rich-rendered, updated by refresh thread)
+      - VBox stacks spinner above content
+      - Refresh thread updates content_widget.value (thread-safe via ipywidgets)
 
-    In terminals: uses Rich Live for ANSI-based in-place rendering.
+    Terminal mode:
+      - Rich Live for ANSI-based in-place rendering
 
-    Falls back to plain print() if neither works.
+    Fallback:
+      - Plain print()
 
-    IMPORTANT: Must be created and start()'d from the main IPython thread so
-    that the DisplayHandle is associated with the correct notebook cell output.
-    After that, add_text / add_tool_call / etc. are safe to call from any thread.
+    Must be created and start()'d from the main IPython thread.
+    After that, state-mutating methods are safe from any thread.
     """
 
     def __init__(self, *, verbose: bool = False, jupyter: bool | None = None) -> None:
@@ -141,16 +160,17 @@ class StreamingDisplay:
         self._interrupted = False
         self._spinner_tick = 0
         self._live: Any | None = None  # rich.live.Live or None
-        self._display_handle: Any | None = None  # IPython DisplayHandle or None
-        # If jupyter is explicitly set, use that; otherwise auto-detect.
-        # Auto-detect only works from the main IPython thread (get_ipython()
-        # is thread-local). When creating for use in a background thread,
-        # pass jupyter=True/False explicitly from the main thread.
+        # Auto-detect only works from the main IPython thread.
         self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
-        self._fallback = False  # True if Rich failed and we use plain print
+        self._fallback = False
+
+        # Jupyter widgets (created in start())
+        self._spinner_widget: Any | None = None  # ipywidgets.HTML
+        self._content_widget: Any | None = None  # ipywidgets.HTML
+        self._container: Any | None = None  # ipywidgets.VBox
 
         # Jupyter periodic refresh state
-        self._dirty = False  # Set by event callbacks, consumed by refresh thread
+        self._dirty = False
         self._stop_event: threading.Event | None = None
         self._refresh_thread: threading.Thread | None = None
 
@@ -158,11 +178,18 @@ class StreamingDisplay:
         """Start the live display. Must be called from the main IPython thread."""
         if self._jupyter:
             try:
+                import ipywidgets as widgets
                 from IPython.display import display
 
-                self._display_handle = display(self._render_html(), display_id=True)
-                # Start a daemon thread that periodically redraws (spinner animation).
-                # Only this thread calls _display_handle.update() to avoid races.
+                # CSS spinner: runs entirely in the browser, always animated
+                self._spinner_widget = widgets.HTML(value=_CSS_SPINNER_HTML)
+                # Content: Rich-rendered HTML, updated by the refresh thread
+                self._content_widget = widgets.HTML(value="")
+                self._container = widgets.VBox([self._spinner_widget, self._content_widget])
+                display(self._container)
+
+                # Start a daemon thread that periodically renders content.
+                # Only this thread writes to _content_widget.value.
                 self._stop_event = threading.Event()
                 self._refresh_thread = threading.Thread(
                     target=self._jupyter_periodic_refresh,
@@ -171,7 +198,7 @@ class StreamingDisplay:
                 )
                 self._refresh_thread.start()
             except Exception:
-                logger.debug("IPython display unavailable, falling back to print()")
+                logger.debug("ipywidgets unavailable, falling back to print()", exc_info=True)
                 self._jupyter = False
                 self._fallback = True
             return
@@ -198,13 +225,15 @@ class StreamingDisplay:
             if self._refresh_thread is not None:
                 self._refresh_thread.join(timeout=2)
                 self._refresh_thread = None
-            # One final render to show the completed state
-            if self._display_handle is not None:
+            # Hide the CSS spinner
+            if self._spinner_widget is not None:
+                self._spinner_widget.layout.display = "none"
+            # Final content render
+            if self._content_widget is not None:
                 try:
-                    self._display_handle.update(self._render_html())
+                    self._content_widget.value = self._render_html_string()
                 except Exception:
-                    logger.debug("Error updating Jupyter display", exc_info=True)
-                self._display_handle = None
+                    logger.debug("Error rendering final Jupyter content", exc_info=True)
             return
 
         if self._live is not None:
@@ -268,9 +297,9 @@ class StreamingDisplay:
             return
 
         if self._jupyter:
-            # In Jupyter mode, just mark dirty — the periodic refresh thread
-            # handles all _display_handle.update() calls to avoid races and
-            # to keep the spinner animated between SDK events.
+            # In Jupyter mode, just mark dirty. The periodic refresh thread
+            # handles widget updates to keep the braille spinner animated
+            # and to batch rapid state changes.
             self._dirty = True
             return
 
@@ -282,16 +311,16 @@ class StreamingDisplay:
                 logger.debug("Error refreshing Rich Live display", exc_info=True)
 
     def _jupyter_periodic_refresh(self) -> None:
-        """Daemon thread: periodically redraws the Jupyter display for spinner animation."""
+        """Daemon thread: periodically updates the Jupyter content widget."""
         while self._stop_event is not None and not self._stop_event.wait(_JUPYTER_REFRESH_INTERVAL):
-            # Refresh when state changed (dirty) or when there are active tool calls (spinner)
+            # Refresh when state changed OR when there are active tool calls (braille spinner)
             has_active_tools = any(not e.completed for e in self._tool_calls)
             if self._dirty or has_active_tools:
                 self._dirty = False
                 self._spinner_tick = (self._spinner_tick + 1) % len(_SPINNER_FRAMES)
                 try:
-                    if self._display_handle is not None:
-                        self._display_handle.update(self._render_html())
+                    if self._content_widget is not None:
+                        self._content_widget.value = self._render_html_string()
                 except Exception:
                     logger.debug("Error in Jupyter periodic refresh", exc_info=True)
                     break
@@ -345,15 +374,14 @@ class StreamingDisplay:
 
         return Panel(Group(*parts), title="Claude", border_style="blue", expand=True)
 
-    def _render_html(self) -> Any:
-        """Render the panel as HTML for Jupyter display."""
-        from IPython.display import HTML
+    def _render_html_string(self) -> str:
+        """Render content to an HTML string for the Jupyter ipywidgets.HTML widget."""
         from rich.console import Console
 
         console = Console(record=True, width=120, force_jupyter=False, force_terminal=True)
         console.print(self._render())
         html = console.export_html(inline_styles=True)
-        return HTML(f'<div style="font-family: monospace; font-size: 13px;">{html}</div>')
+        return f'<div style="font-family: monospace; font-size: 13px;">{html}</div>'
 
     # ------------------------------------------------------------------
     # Fallback: plain print for environments where nothing else works
@@ -364,7 +392,6 @@ class StreamingDisplay:
         if self._model and len(self._text_blocks) == 0 and len(self._tool_calls) == 0:
             print(f"Model: {self._model}", flush=True)
         if self._text_blocks:
-            # Print the last text block (the one just added)
             print(self._text_blocks[-1], flush=True)
         if self._tool_calls:
             entry = self._tool_calls[-1]
