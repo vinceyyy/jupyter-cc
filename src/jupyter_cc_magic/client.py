@@ -73,6 +73,8 @@ class ClaudeClientManager:
         is_new_conversation: bool,
         verbose: bool = False,
         enable_interrupt: bool = True,
+        *,
+        display: StreamingDisplay | None = None,
     ) -> tuple[list[str], list[str]]:
         """
         Send a query and collect all responses synchronously.
@@ -84,6 +86,9 @@ class ClaudeClientManager:
             is_new_conversation: Whether this is a new conversation
             verbose: Whether to show verbose output
             enable_interrupt: If True, enables interrupt handling
+            display: Pre-created StreamingDisplay. When provided, the caller is
+                responsible for start() and stop(). When None, this method creates
+                and manages its own display.
 
         Returns:
             Tuple of (assistant_messages, tool_calls)
@@ -95,8 +100,11 @@ class ClaudeClientManager:
         assistant_messages: list[str] = []
         self._interrupt_requested = False
 
-        display = StreamingDisplay(verbose=verbose)
-        display.start()
+        # If no external display provided, create and manage our own
+        owns_display = display is None
+        if owns_display:
+            display = StreamingDisplay(verbose=verbose)
+            display.start()
 
         # If we have a stored session ID and this is not a new conversation, use it for resumption
         # But only if the options don't already have a resume value set
@@ -238,7 +246,8 @@ class ClaudeClientManager:
                     display.show_error(str(err))
                     traceback.print_exception(type(err), err, err.__traceback__)
         finally:
-            display.stop()
+            if owns_display:
+                display.stop()
             self._current_client = None
 
         return assistant_messages, tool_calls
@@ -266,6 +275,8 @@ async def run_streaming_query(
     prompt: str | list[dict[str, Any]],
     options: ClaudeAgentOptions,
     verbose: bool,
+    *,
+    display: StreamingDisplay | None = None,
 ) -> None:
     """
     Run Claude query with real-time message streaming using a fresh client.
@@ -276,7 +287,9 @@ async def run_streaming_query(
         parent._client_manager = ClaudeClientManager()
 
     # Run the query with a fresh client
-    await parent._client_manager.query_sync(prompt, options, parent._config_manager.is_new_conversation, verbose)
+    await parent._client_manager.query_sync(
+        prompt, options, parent._config_manager.is_new_conversation, verbose, display=display
+    )
 
     # Update last output line
     parent._history_manager.update_last_output_line()

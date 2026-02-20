@@ -61,7 +61,7 @@ _magic_instance: ClaudeCodeMagics | None = None
 @tool(
     "create_python_cell",
     "Create a cell with Python code in the IPython environment",
-    {"code": str},
+    {"code": str, "description": str},
 )
 async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
     """Handle create_python_cell tool calls - create cells and return immediately."""
@@ -74,6 +74,7 @@ async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
         }
 
     code = args.get("code", "")
+    description = args.get("description", "")
     if not code:
         # Ensure async checkpoint before returning
         await anyio.lowlevel.checkpoint()
@@ -113,7 +114,7 @@ async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
             }
 
         # Create cell in IPython
-        _magic_instance._create_approval_cell(code, request_id, tool_use_id)
+        _magic_instance._create_approval_cell(code, request_id, tool_use_id, description)
 
         # Increment the counter after successful cell creation
         _magic_instance._config_manager.create_python_cell_count += 1
@@ -185,10 +186,12 @@ class ClaudeCodeMagics(Magics):
 
         HelpEnd.priority = EscapedCommand.priority + 1
 
-    def _create_approval_cell(self, code: str, request_id: str, tool_use_id: str | None = None) -> None:
+    def _create_approval_cell(
+        self, code: str, request_id: str, tool_use_id: str | None = None, description: str = ""
+    ) -> None:
         """Create a cell for user approval of code execution."""
         should_replace = self._config_manager.should_cleanup_prompts or self._config_manager.replace_current_cell
-        create_approval_cell(self, code, request_id, should_replace, tool_use_id)
+        create_approval_cell(self, code, request_id, should_replace, tool_use_id, description)
 
     def _post_run_cell_hook(self, result: Any) -> None:
         """Hook that runs after each cell execution to process the queue."""
@@ -422,6 +425,14 @@ Your client's request is <request>{prompt}</request>
         if self._client_manager is not None and self._client_manager.session_id:
             options.resume = self._client_manager.session_id
 
+        # Create display in the main thread so ipywidgets are associated
+        # with the current cell output. The background thread only mutates
+        # state; stop() renders the final result from the main thread.
+        from .display import StreamingDisplay
+
+        display = StreamingDisplay(verbose=verbose)
+        display.start()
+
         # Run the query with streaming
         # Simple approach: always use a thread to avoid anyio.run() nesting issues
         exception_queue: queue.Queue[Exception] = queue.Queue()
@@ -431,7 +442,7 @@ Your client's request is <request>{prompt}</request>
                 # This always works because the thread has its own context
                 # anyio.run() takes a no-arg async callable, so wrap with a lambda
                 anyio.run(
-                    lambda: self._run_streaming_query(enhanced_prompt, options, verbose),
+                    lambda: self._run_streaming_query(enhanced_prompt, options, verbose, display),
                 )
             except Exception as e:
                 exception_queue.put(e)
@@ -462,9 +473,9 @@ Your client's request is <request>{prompt}</request>
             original_handler = signal.signal(signal.SIGINT, interrupt_handler)
             thread.join()
         finally:
-            # Restore original handler
             if original_handler is not None:
                 signal.signal(signal.SIGINT, original_handler)
+            display.stop()
 
         # Check for exceptions
         if not exception_queue.empty():
@@ -495,10 +506,11 @@ Your client's request is <request>{prompt}</request>
         prompt: str | list[dict[str, Any]],
         options: ClaudeAgentOptions,
         verbose: bool,
+        display: Any = None,
     ) -> None:
         """Run Claude query with real-time message streaming."""
         self._config_manager.is_current_execution_verbose = verbose
-        await run_streaming_query(self, prompt, options, verbose)
+        await run_streaming_query(self, prompt, options, verbose, display=display)
         self._config_manager.is_current_execution_verbose = False
 
     def _claude_continue_impl(self, request_id: str, additional_prompt: str = "", verbose: bool = False) -> str:

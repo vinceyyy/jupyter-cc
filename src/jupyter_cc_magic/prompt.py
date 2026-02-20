@@ -96,6 +96,7 @@ Examples:
 IMPORTANT: Do not invoke {EXECUTE_PYTHON_TOOL_NAME} in parallel.
 IMPORTANT: Always include a return value or expression at the end of your {EXECUTE_PYTHON_TOOL_NAME} output. Only return values are captured in output cells - print statements are NOT captured.
 For example, instead of print(df.head()), use df.head() as the last line.
+IMPORTANT: Always provide a short `description` when calling {EXECUTE_PYTHON_TOOL_NAME}. This appears as a comment at the top of the cell so the user knows what the cell does at a glance. Keep it concise (under 80 chars), e.g. "Load CSV and preview first 5 rows" or "Plot monthly revenue with moving average".
 
 If <request> is empty, it is because the user wants you to continue from where you left off in the previous messages."""
 

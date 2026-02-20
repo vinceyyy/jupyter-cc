@@ -1,6 +1,12 @@
 """
 Rich streaming display for Claude responses.
-Renders a live-updating panel with model info, text, tool calls, and session ID.
+
+In Jupyter notebooks:
+  - Shows a CSS spinner while running (pure client-side animation)
+  - Renders the final result once after completion via IPython.display.HTML
+
+In terminals, uses Rich Live for ANSI-based live rendering.
+Falls back to plain print() if neither works.
 """
 
 from __future__ import annotations
@@ -9,10 +15,24 @@ import logging
 from typing import Any
 
 from .constants import EXECUTE_PYTHON_TOOL_NAME
+from .integration import is_in_jupyter_notebook
 
 logger = logging.getLogger(__name__)
 
-# Braille spinner frames for active tool calls — cycled on each render
+# Pure-CSS spinner shown while running.
+# Runs entirely in the browser — no Python-side refresh needed.
+_CSS_SPINNER_HTML = (
+    '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+    'font-family:sans-serif;font-size:13px;color:#888">'
+    '<div style="width:14px;height:14px;border:2px solid #e0e0e0;'
+    "border-top:2px solid #4a90d9;border-radius:50%;"
+    'animation:jcc-spin .8s linear infinite"></div>'
+    "<span>Running&hellip;</span></div>"
+    "<style>@keyframes jcc-spin{0%{transform:rotate(0deg)}"
+    "100%{transform:rotate(360deg)}}</style>"
+)
+
+# Braille spinner frames for active tool calls in terminal mode
 _SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
@@ -81,6 +101,12 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
         todos = tool_input.get("todos", [])
         return f"{display_name}({len(todos)} items)"
 
+    if tool_name == EXECUTE_PYTHON_TOOL_NAME:
+        description = tool_input.get("description", "")
+        if description:
+            return f'{display_name}("{description}")'
+        return display_name
+
     return display_name
 
 
@@ -95,19 +121,23 @@ class _ToolCallEntry:
 
 class StreamingDisplay:
     """
-    Rich Live display for streaming Claude responses.
+    Display for Claude responses.
 
-    Renders a panel that updates in-place showing:
-    - Model name header
-    - Text blocks as Rich Markdown
-    - Tool calls with active/done indicators
-    - Session ID footer
-    - Errors and interrupts
+    Jupyter mode:
+      - CSS spinner while running (pure client-side, no Python refresh)
+      - Final result rendered once via IPython.display after completion
 
-    Falls back to plain print() if Rich fails to initialize.
+    Terminal mode:
+      - Rich Live for ANSI-based in-place rendering
+
+    Fallback:
+      - Plain print()
+
+    Must be created and start()'d from the main IPython thread.
+    State-mutating methods (add_text, add_tool_call, etc.) are safe from any thread.
     """
 
-    def __init__(self, *, verbose: bool = False) -> None:
+    def __init__(self, *, verbose: bool = False, jupyter: bool | None = None) -> None:
         self._verbose = verbose
         self._model: str | None = None
         self._text_blocks: list[str] = []
@@ -117,10 +147,28 @@ class StreamingDisplay:
         self._interrupted = False
         self._spinner_tick = 0
         self._live: Any | None = None  # rich.live.Live or None
-        self._fallback = False  # True if Rich failed and we use plain print
+        # Auto-detect only works from the main IPython thread.
+        self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
+        self._fallback = False
+
+        # Jupyter spinner widget (created in start())
+        self._spinner_widget: Any | None = None  # ipywidgets.HTML
 
     def start(self) -> None:
-        """Start the live display. Falls back to print() on failure."""
+        """Start the live display. Must be called from the main IPython thread."""
+        if self._jupyter:
+            try:
+                import ipywidgets as widgets
+                from IPython.display import display
+
+                self._spinner_widget = widgets.HTML(value=_CSS_SPINNER_HTML)
+                display(self._spinner_widget)
+            except Exception:
+                logger.debug("ipywidgets unavailable, falling back to print()", exc_info=True)
+                self._jupyter = False
+                self._fallback = True
+            return
+
         try:
             from rich.live import Live
 
@@ -135,7 +183,20 @@ class StreamingDisplay:
             self._fallback = True
 
     def stop(self) -> None:
-        """Stop the live display, leaving final output visible."""
+        """Stop the live display, render final output."""
+        if self._jupyter:
+            # Hide the spinner
+            if self._spinner_widget is not None:
+                self._spinner_widget.layout.display = "none"
+            # Render final result
+            try:
+                from IPython.display import HTML, display
+
+                display(HTML(self._render_html_string()))
+            except Exception:
+                logger.debug("Error rendering final Jupyter content", exc_info=True)
+            return
+
         if self._live is not None:
             try:
                 self._live.update(self._render())
@@ -191,10 +252,17 @@ class StreamingDisplay:
     # ------------------------------------------------------------------
 
     def _refresh(self) -> None:
-        """Push the latest render to the live display, or fall back to print."""
+        """Push the latest render to the display (terminal/fallback only).
+
+        In Jupyter mode this is a no-op — result is rendered once in stop().
+        """
         if self._fallback:
             self._print_fallback_latest()
             return
+
+        if self._jupyter:
+            return
+
         if self._live is not None:
             try:
                 self._spinner_tick = (self._spinner_tick + 1) % len(_SPINNER_FRAMES)
@@ -251,8 +319,22 @@ class StreamingDisplay:
 
         return Panel(Group(*parts), title="Claude", border_style="blue", expand=True)
 
+    def _render_html_string(self) -> str:
+        """Render content to an HTML string for Jupyter."""
+        import io
+
+        from rich.console import Console
+
+        # force_jupyter=False prevents Rich from calling IPython.display()
+        # internally (which would duplicate our explicit display in stop()).
+        # file=StringIO prevents writing to stdout.
+        console = Console(record=True, width=120, force_jupyter=False, force_terminal=True, file=io.StringIO())
+        console.print(self._render())
+        html = console.export_html(inline_styles=True)
+        return f'<div style="font-family: monospace; font-size: 13px;">{html}</div>'
+
     # ------------------------------------------------------------------
-    # Fallback: plain print for environments where Rich Live doesn't work
+    # Fallback: plain print for environments where nothing else works
     # ------------------------------------------------------------------
 
     def _print_fallback_latest(self) -> None:
@@ -260,7 +342,6 @@ class StreamingDisplay:
         if self._model and len(self._text_blocks) == 0 and len(self._tool_calls) == 0:
             print(f"Model: {self._model}", flush=True)
         if self._text_blocks:
-            # Print the last text block (the one just added)
             print(self._text_blocks[-1], flush=True)
         if self._tool_calls:
             entry = self._tool_calls[-1]
