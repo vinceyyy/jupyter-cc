@@ -325,9 +325,10 @@ class StreamingDisplay:
 
         from rich.console import Console
 
-        # file=StringIO suppresses stdout — without it, console.print()
-        # writes to stdout AND records, causing duplicate output in Jupyter.
-        console = Console(record=True, width=120, force_terminal=True, file=io.StringIO())
+        # force_jupyter=False prevents Rich from calling IPython.display()
+        # internally (which would duplicate our explicit display in stop()).
+        # file=StringIO prevents writing to stdout.
+        console = Console(record=True, width=120, force_jupyter=False, force_terminal=True, file=io.StringIO())
         console.print(self._render())
         html = console.export_html(inline_styles=True)
         return f'<div style="font-family: monospace; font-size: 13px;">{html}</div>'
