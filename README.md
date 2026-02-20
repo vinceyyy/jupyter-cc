@@ -1,10 +1,10 @@
-# jupyter_cc
+# jupyter-cc
 
 **Jupyter magic for Claude Code -- `%cc` brings agentic AI into your notebook cells.**
 
-jupyter_cc integrates Claude Code directly into Jupyter notebooks as IPython magic commands. Instead of switching between a sidebar or terminal and your notebook, you stay in the notebook: type `%cc` with a prompt, and Claude reads your variables, executes tools, and creates new code cells for you to review and run.
+jupyter-cc integrates Claude Code directly into Jupyter notebooks as IPython magic commands. Instead of switching between a sidebar or terminal and your notebook, you stay in the notebook: type `%cc` with a prompt, and Claude reads your variables, executes tools, and creates new code cells for you to review and run.
 
-Built on the Claude Agent SDK with an in-process MCP server, jupyter_cc gives Claude the same agentic capabilities it has in Claude Code CLI -- file editing, shell commands, web search -- plus the ability to create notebook cells.
+Built on the Claude Agent SDK with an in-process MCP server, jupyter-cc gives Claude the same agentic capabilities it has in Claude Code CLI -- file editing, shell commands, web search -- plus the ability to create notebook cells.
 
 ## Example Session
 
@@ -42,13 +42,13 @@ Built on the Claude Agent SDK with an in-process MCP server, jupyter_cc gives Cl
 Install directly from GitHub:
 
 ```bash
-pip install git+https://github.com/vinceyyy/jupyter_cc.git
+pip install git+https://github.com/vinceyyy/jupyter-cc.git
 ```
 
 With uv:
 
 ```bash
-uv pip install git+https://github.com/vinceyyy/jupyter_cc.git
+uv pip install git+https://github.com/vinceyyy/jupyter-cc.git
 ```
 
 ### Quick Start
@@ -69,11 +69,11 @@ pip uninstall jupyter-cc-magic
 
 ### Development (for contributors)
 
-If you want to contribute to jupyter_cc, clone the repo and install in development mode:
+If you want to contribute to jupyter-cc, clone the repo and install in development mode:
 
 ```bash
-git clone https://github.com/vinceyyy/jupyter_cc.git
-cd jupyter_cc
+git clone https://github.com/vinceyyy/jupyter-cc.git
+cd jupyter-cc
 uv sync
 ```
 
@@ -159,7 +159,7 @@ uv build                       # Build wheel/sdist
 
 ## Acknowledgements
 
-jupyter_cc is adapted from:
+jupyter-cc is adapted from:
 
 - [notellm](https://github.com/prairie-guy/notellm) by Bryan Daniels
 - [claude-code-jupyter-staging](https://pypi.org/project/claude-code-jupyter-staging/) by Anthropic

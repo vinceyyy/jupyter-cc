@@ -2,7 +2,7 @@
 
 ## Overview
 
-When you run `%cc analyze my dataframe`, Claude does not just receive the string `"analyze my dataframe"`. jupyter_cc augments your prompt with the current kernel state -- variable changes, recently executed cells, captured images -- before sending it to the Claude Agent SDK. This document explains exactly what Claude receives and how each piece is constructed.
+When you run `%cc analyze my dataframe`, Claude does not just receive the string `"analyze my dataframe"`. jupyter-cc augments your prompt with the current kernel state -- variable changes, recently executed cells, captured images -- before sending it to the Claude Agent SDK. This document explains exactly what Claude receives and how each piece is constructed.
 
 ## The Enhanced Prompt
 
@@ -160,7 +160,7 @@ When code uses IPython's `capture_output()` pattern with the special variable `_
    for output in _claude_captured_output.outputs:
        display(output)
    ```
-1. When the user runs this cell and then calls `%cc`, jupyter_cc detects `_claude_captured_output` in the namespace.
+1. When the user runs this cell and then calls `%cc`, jupyter-cc detects `_claude_captured_output` in the namespace.
 1. `extract_images_from_captured()` extracts image data from each output object.
 1. Images are sent as structured content blocks (not embedded in text):
    ```python
@@ -233,7 +233,7 @@ The `create_python_cell` tool accepts two parameters:
 
 **Source**: `src/jupyter_cc_magic/client.py` -- `ClaudeClientManager`
 
-jupyter_cc maintains conversation continuity across `%cc` calls:
+jupyter-cc maintains conversation continuity across `%cc` calls:
 
 - **Session ID**: After each query, the SDK returns a `session_id` in the `ResultMessage`. `ClaudeClientManager` stores this.
 - **Resumption**: On the next `%cc` call, the stored session ID is passed via `options.resume`, and `options.continue_conversation = True`. Claude picks up where it left off.
@@ -255,7 +255,7 @@ options = ClaudeAgentOptions(
     system_prompt={
         "type": "preset",
         "preset": "claude_code",  # Full Claude Code system prompt
-        "append": "...",          # jupyter_cc-specific additions (see "System Prompt")
+        "append": "...",          # jupyter-cc-specific additions (see "System Prompt")
     },
     setting_sources=["user", "project", "local"],
     add_dirs=[...],               # From --add-dir options
