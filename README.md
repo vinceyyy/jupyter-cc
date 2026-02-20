@@ -26,29 +26,55 @@ Built on the Claude Agent SDK with an in-process MCP server, jupyter_cc gives Cl
 
 ### Prerequisites
 
-- Python 3.13+
-- Claude Code CLI or Claude Pro/Max subscription (for SDK authentication)
+1. **Python 3.13+** -- check with `python --version`
+1. **Claude Code authentication** -- one of:
+   - Claude Code CLI installed (`claude --version`) -- install from [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code/overview)
+   - OR Claude Pro/Max subscription with API access
+1. **Jupyter** (for notebook usage) or **IPython** (for terminal usage):
+   ```bash
+   pip install jupyter
+   # or
+   pip install ipython
+   ```
 
-### Install from source
+### Install
+
+Install directly from GitHub:
 
 ```bash
-git clone https://github.com/vinceyyy/jupyter_cc.git
-cd jupyter_cc
-pip install .
+pip install git+https://github.com/vinceyyy/jupyter_cc.git
 ```
 
-### Development install
+With uv:
 
 ```bash
-git clone https://github.com/vinceyyy/jupyter_cc.git
-cd jupyter_cc
-uv sync
+uv pip install git+https://github.com/vinceyyy/jupyter_cc.git
+```
+
+### Quick Start
+
+After installation:
+
+```python
+# In a Jupyter notebook or IPython session:
+%load_ext jupyter_cc_magic
+%cc Hello! What can you help me with?
 ```
 
 ### Uninstall
 
 ```bash
 pip uninstall jupyter-cc-magic
+```
+
+### Development (for contributors)
+
+If you want to contribute to jupyter_cc, clone the repo and install in development mode:
+
+```bash
+git clone https://github.com/vinceyyy/jupyter_cc.git
+cd jupyter_cc
+uv sync
 ```
 
 ## Usage
@@ -59,44 +85,48 @@ pip uninstall jupyter-cc-magic
 
 ### Magic Commands
 
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `%cc <prompt>` | | Continue conversation with Claude (one-line) |
-| `%%cc` | | Continue conversation with Claude (multi-line) |
-| `%cc_new <prompt>` | `%ccn` | Start a fresh conversation (no history) |
+| Command            | Alias  | Description                                       |
+| ------------------ | ------ | ------------------------------------------------- |
+| `%cc <prompt>`     |        | Continue conversation with Claude (one-line)      |
+| `%%cc`             |        | Continue conversation with Claude (multi-line)    |
+| `%cc_new <prompt>` | `%ccn` | Start a fresh conversation (no history)           |
 | `%cc_cur <prompt>` | `%ccc` | Like `%cc`, but replaces the prompt cell in-place |
 
 Use `%%cc` (cell magic with double `%`) when your prompt spans multiple lines or ends with `?` (to avoid IPython's help system).
 
 ### Options
 
-| Option | Description |
-|--------|-------------|
-| `--model <name>` | Model to use (default: sonnet) |
-| `--max-cells <num>` | Max cells Claude can create per turn (default: 3) |
-| `--import <file>` | Include a file in the initial conversation context |
-| `--add-dir <dir>` | Add a directory to Claude's accessible paths |
-| `--mcp-config <file>` | Path to `.mcp.json` with additional MCP server configs |
+| Option                  | Description                                            |
+| ----------------------- | ------------------------------------------------------ |
+| `--model <name>`        | Model to use (default: sonnet)                         |
+| `--max-cells <num>`     | Max cells Claude can create per turn (default: 3)      |
+| `--import <file>`       | Include a file in the initial conversation context     |
+| `--add-dir <dir>`       | Add a directory to Claude's accessible paths           |
+| `--mcp-config <file>`   | Path to `.mcp.json` with additional MCP server configs |
 | `--cells-to-load <num>` | Number of recent cells to load into a new conversation |
-| `--clean` | Replace prompt cells with Claude's code cells |
-| `--no-clean` | Keep prompt cells (default) |
-| `--verbose`, `-v` | Show detailed tool call arguments |
-| `--help`, `-h` | Show usage information |
+| `--clean`               | Replace prompt cells with Claude's code cells          |
+| `--no-clean`            | Keep prompt cells (default)                            |
+| `--verbose`, `-v`       | Show detailed tool call arguments                      |
+| `--help`, `-h`          | Show usage information                                 |
 
 ### Skills and Context
 
 The Claude Agent SDK automatically reads configuration from your project and user directories. No extra setup is needed -- just place files in the right locations.
 
 **Project-level** (checked into your repo):
+
 - `.claude/CLAUDE.md` -- project instructions, coding conventions, architecture notes
 - `.claude/settings.local.json` -- tool permissions (auto-created on first load)
 - `.claude/skills/` -- project-specific skill files (`*.md`)
 
 **User-level** (your personal config):
+
 - `~/.claude/CLAUDE.md` -- global instructions applied to all projects
 - `~/.claude/skills/` -- personal skills available everywhere
 
 To add a skill, create a Markdown file in `.claude/skills/` or `~/.claude/skills/`. To customize Claude's behavior for a project, edit `.claude/CLAUDE.md` in your project root.
+
+For a detailed breakdown of what Claude sees when you run `%cc` -- variables, cell history, images, system prompt, and more -- see [What CC Sees](docs/what-cc-sees.md).
 
 ## Project Structure
 

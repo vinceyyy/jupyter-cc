@@ -34,19 +34,24 @@ src/jupyter_cc_magic/
 ### Extension Lifecycle
 
 1. `%load_ext jupyter_cc_magic` -> `__init__.py:load_ipython_extension()`
-2. Creates `.claude/settings.local.json` with default permissions (Bash, Read, Write, etc.)
-3. Registers `ClaudeCodeMagics` and `CellWatcher` hooks
+1. Creates `.claude/settings.local.json` with default permissions (Bash, Read, Write, etc.)
+1. Registers `ClaudeCodeMagics` and `CellWatcher` hooks
 
 ### Query Flow
 
 1. `%cc <prompt>` -> `magics.py:_execute_prompt()`
-2. Builds enhanced prompt with variables, history, imported files, images
-3. Creates `ClaudeAgentOptions` with MCP server, allowed tools, `add_dirs`
-4. `setting_sources=["user", "project", "local"]` -- SDK auto-reads `~/.claude/` and `.claude/`
-5. Runs in a thread to avoid event loop nesting: `anyio.run(query)`
-6. `client.py`: `async with ClaudeSDKClient(options) as client:` -- one client per query
-7. Streams responses, displays messages/tool calls, extracts session ID for continuity
-8. Tool calls to `create_python_cell` -> creates notebook cells for user approval
+1. Builds enhanced prompt with variables, history, imported files, images
+1. Creates `ClaudeAgentOptions` with MCP server, allowed tools, `add_dirs`
+1. `setting_sources=["user", "project", "local"]` -- SDK auto-reads `~/.claude/` and `.claude/`
+1. Runs in a thread to avoid event loop nesting: `anyio.run(query)`
+1. `client.py`: `async with ClaudeSDKClient(options) as client:` -- one client per query
+1. Streams responses, displays messages/tool calls, extracts session ID for continuity
+1. Tool calls to `create_python_cell` -> creates notebook cells for user approval
+
+### What Claude Receives
+
+See [docs/what-cc-sees.md](docs/what-cc-sees.md) for a detailed breakdown of the enhanced prompt,
+variable tracking, cell history, image capture, system prompt, and SDK configuration.
 
 ### Key Patterns
 
