@@ -321,9 +321,13 @@ class StreamingDisplay:
 
     def _render_html_string(self) -> str:
         """Render content to an HTML string for Jupyter."""
+        import io
+
         from rich.console import Console
 
-        console = Console(record=True, width=120, force_jupyter=False, force_terminal=True)
+        # file=StringIO suppresses stdout — without it, console.print()
+        # writes to stdout AND records, causing duplicate output in Jupyter.
+        console = Console(record=True, width=120, force_terminal=True, file=io.StringIO())
         console.print(self._render())
         html = console.export_html(inline_styles=True)
         return f'<div style="font-family: monospace; font-size: 13px;">{html}</div>'
