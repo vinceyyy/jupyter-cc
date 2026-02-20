@@ -20,8 +20,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from .constants import EXECUTE_PYTHON_TOOL_NAME
-from .integration import is_in_jupyter_notebook
+from .display import StreamingDisplay
 
 if TYPE_CHECKING:
     from .magics import ClaudeCodeMagics
@@ -56,117 +55,6 @@ def _patch_sdk_message_parser() -> None:
 
 
 _patch_sdk_message_parser()
-
-MARKDOWN_PATTERNS = [
-    "```",  # Code blocks
-    "`",  # Inline code
-    "    ",  # Indented code blocks
-    "\t",  # Indented code blocks
-    "**",  # Bold
-    "##",  # Headers (checking for at least level 2)
-    "](",  # Links/images
-    "---",  # Tables
-    ">",  # Blockquotes
-    "~~",  # Strikethrough
-]
-
-
-def _display_claude_message_with_markdown(text: str) -> None:
-    """Display a Claude message with markdown rendering if relevant and available."""
-    claude_message = f"💭 Claude: {text}"
-
-    # IPython displays markdown as <IPython.core.display.Markdown object>
-    if not is_in_jupyter_notebook():
-        print(claude_message, flush=True)
-        return
-
-    # Simple check: if text has any markdown elements, use markdown display
-    has_markdown = any(pattern in text for pattern in MARKDOWN_PATTERNS)
-    if not has_markdown:
-        print(claude_message, flush=True)
-        return
-
-    try:
-        from IPython.display import Markdown, display
-
-        display(Markdown(claude_message))
-    except ImportError:
-        print(claude_message, flush=True)
-
-
-def _format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
-    """Format tool calls to match Claude CLI style with meaningful details."""
-    # Map tool names to their user-facing names
-    tool_display_names = {
-        "LS": "List",
-        "GrepToolv2": "Search",
-        EXECUTE_PYTHON_TOOL_NAME: "CreateNotebookCell",
-    }
-
-    display_name = tool_display_names.get(tool_name, tool_name)
-
-    # Format based on tool type with most relevant info
-    if tool_name == "Read":
-        file_path = tool_input.get("file_path", "")
-        parts = [f"{display_name}({file_path})"]
-        if "offset" in tool_input:
-            parts.append(f"offset: {tool_input['offset']}")
-        if "limit" in tool_input:
-            parts.append(f"limit: {tool_input['limit']}")
-        return " ".join(parts)
-
-    if tool_name == "LS":
-        path = tool_input.get("path", "")
-        return f"{display_name}({path})"
-
-    if tool_name == "GrepToolv2":
-        pattern = tool_input.get("pattern", "")
-        parts = [f'{display_name}(pattern: "{pattern}"']
-
-        # Add path if not current directory
-        path = tool_input.get("path")
-        parts.append(f'path: "{path}"')
-
-        # Add other relevant options
-        if "glob" in tool_input:
-            parts.append(f'glob: "{tool_input["glob"]}"')
-        if "type" in tool_input:
-            parts.append(f'type: "{tool_input["type"]}"')
-        if tool_input.get("output_mode") and tool_input["output_mode"] != "files_with_matches":
-            parts.append(f'output_mode: "{tool_input["output_mode"]}"')
-        if "head_limit" in tool_input:
-            parts.append(f"head_limit: {tool_input['head_limit']}")
-
-        return ", ".join(parts) + ")"
-
-    if tool_name == "Bash":
-        command = tool_input.get("command", "")
-        return f'{display_name}("{command}")'
-
-    if tool_name in ["Write", "Edit", "MultiEdit"]:
-        file_path = tool_input.get("file_path", "")
-        return f"{display_name}({file_path})"
-
-    if tool_name == "Glob":
-        pattern = tool_input.get("pattern", "")
-        path = tool_input.get("path", "")
-        if path:
-            return f'{display_name}(pattern: "{pattern}", path: "{path}")'
-        return f'{display_name}("{pattern}")'
-
-    if tool_name == "WebFetch":
-        url = tool_input.get("url", "")
-        return f'{display_name}("{url}")'
-
-    if tool_name == "WebSearch":
-        query = tool_input.get("query", "")
-        return f'{display_name}("{query}")'
-
-    if tool_name == "TodoWrite":
-        todos = tool_input.get("todos", [])
-        return f"{display_name}({len(todos)} items)"
-
-    return display_name
 
 
 class ClaudeClientManager:
@@ -206,6 +94,9 @@ class ClaudeClientManager:
         tool_calls: list[str] = []
         assistant_messages: list[str] = []
         self._interrupt_requested = False
+
+        display = StreamingDisplay(verbose=verbose)
+        display.start()
 
         # If we have a stored session ID and this is not a new conversation, use it for resumption
         # But only if the options don't already have a resume value set
@@ -272,7 +163,7 @@ class ClaudeClientManager:
                             if self._interrupt_requested:
                                 tg.cancel_scope.cancel()
                                 await client.interrupt()
-                                print("\n⚠️ Query interrupted by user", flush=True)
+                                display.show_interrupt()
                                 break
 
                             # Check if we're done (success or error)
@@ -289,26 +180,20 @@ class ClaudeClientManager:
                     for message in messages_to_process:
                         if isinstance(message, AssistantMessage):
                             if hasattr(message, "model") and not has_printed_model:
-                                print(f"🧠 Claude model: {message.model}", flush=True)
+                                display.set_model(message.model)
                                 has_printed_model = True
                             for block in message.content:
                                 if isinstance(block, TextBlock) and block.text.strip():
-                                    _display_claude_message_with_markdown(block.text)
+                                    display.add_text(block.text)
                                     assistant_messages.append(block.text)
                                 elif isinstance(block, ToolUseBlock):
-                                    tool_display = _format_tool_call(block.name, block.input)
-                                    print(f"⏺ {tool_display}", flush=True)
-                                    if verbose:
-                                        print(f"  ⎿  Arguments: {block.input}", flush=True)
+                                    display.add_tool_call(block.name, block.input, block.id)
                                     tool_calls.append(f"{block.name}: {block.input}")
                         elif isinstance(message, ResultMessage):
                             # Extract and store session ID from result
                             if message.session_id and message.session_id != self._session_id:
                                 self._session_id = message.session_id
-                                print(
-                                    f"📍 Claude Code Session ID: {self._session_id}",
-                                    flush=True,
-                                )
+                                display.set_session_id(self._session_id)
                 else:
                     # Simple mode without interrupt support
                     async for message in client.receive_response():
@@ -316,26 +201,20 @@ class ClaudeClientManager:
                             continue  # Skipped by patched parser (unknown type)
                         if isinstance(message, AssistantMessage):
                             if hasattr(message, "model") and not has_printed_model:
-                                print(f"🧠 Claude model: {message.model}", flush=True)
+                                display.set_model(message.model)
                                 has_printed_model = True
                             for block in message.content:
                                 if isinstance(block, TextBlock) and block.text.strip():
-                                    _display_claude_message_with_markdown(block.text)
+                                    display.add_text(block.text)
                                     assistant_messages.append(block.text)
                                 elif isinstance(block, ToolUseBlock):
-                                    tool_display = _format_tool_call(block.name, block.input)
-                                    print(f"\n⏺ {tool_display}", flush=True)
-                                    if verbose:
-                                        print(f"  ⎿  Arguments: {block.input}", flush=True)
+                                    display.add_tool_call(block.name, block.input, block.id)
                                     tool_calls.append(f"{block.name}: {block.input}")
                         elif isinstance(message, ResultMessage):
                             # Extract and store session ID from result
                             if message.session_id and message.session_id != self._session_id:
                                 self._session_id = message.session_id
-                                print(
-                                    f"\n📍 Claude Code Session ID: {self._session_id}",
-                                    flush=True,
-                                )
+                                display.set_session_id(self._session_id)
                             break
 
         except Exception as e:
@@ -354,14 +233,12 @@ class ClaudeClientManager:
                     ]
                 ):
                     if not self._interrupt_requested:
-                        print(
-                            "\n⚠️ Connection was lost. A new connection will be created automatically.",
-                            flush=True,
-                        )
+                        display.show_error("Connection was lost. A new connection will be created automatically.")
                 else:
-                    print(f"\n❌ Error during Claude execution: {err!s}", flush=True)
+                    display.show_error(str(err))
                     traceback.print_exception(type(err), err, err.__traceback__)
         finally:
+            display.stop()
             self._current_client = None
 
         return assistant_messages, tool_calls

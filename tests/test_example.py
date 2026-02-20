@@ -1,11 +1,7 @@
-"""Example test file."""
+"""Example test to verify package imports correctly."""
+
+from jupyter_cc_magic import __version__
 
 
-def test_example():
-    """Example test that always passes."""
-    assert True
-
-
-def test_import():
-    """Test that the package can be imported."""
-    import jupyter_cc_magic  # noqa: F401
+def test_version():
+    assert __version__ == "1.0.0"

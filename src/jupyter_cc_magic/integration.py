@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from IPython import get_ipython  # type: ignore[attr-defined]
 
-from .constants import PYGMENTS_AVAILABLE
-
 if TYPE_CHECKING:
     from .magics import ClaudeCodeMagics
 
@@ -51,45 +49,10 @@ def create_approval_cell(
 
     queue_position = len(parent.shell.user_ns["_claude_cell_queue"]) if parent.shell else 0
 
-    # Display formatted output
-    print("\n" + "=" * 60, flush=True)
-    print(
-        "🤖 Claude wants to execute code",
-        flush=True,
-    )
-    print("-" * 60, flush=True)
-
-    if parent._config_manager.is_current_execution_verbose:
-        if PYGMENTS_AVAILABLE:
-            # Syntax highlighted code
-            from pygments import highlight
-            from pygments.formatters import TerminalFormatter
-            from pygments.lexers import PythonLexer
-
-            print(highlight(marked_code, PythonLexer(), TerminalFormatter()), flush=True)
-        else:
-            print(marked_code, flush=True)
-
-        print("-" * 60, flush=True)
-
     if queue_position == 1:
         # Store the code to be prepopulated after the async operation completes
         if parent.shell is not None:
             parent.shell.user_ns["_claude_pending_input"] = marked_code
-
-        if is_in_jupyter_notebook():
-            cell_location = "above" if should_cleanup_prompts else "below"
-            print(f"📋 To approve: Run the cell {cell_location}", flush=True)
-        else:
-            print("📋 Press Enter to execute the code (or edit it first)", flush=True)
-    else:
-        print(
-            "⏳ Queued: Cell will appear automatically after previous cell is executed",
-            flush=True,
-        )
-
-    print("➡️ To continue Claude agentically afterward: Run %cc", flush=True)
-    print("=" * 60 + "\n", flush=True)
 
 
 def adjust_cell_queue_markers(parent: ClaudeCodeMagics) -> None:

@@ -40,6 +40,17 @@ When to use each form:
   • Use %%cc (double %) for:
     - Multi-line instructions or detailed prompts
 
+Skills & Context:
+  Claude automatically reads these from your project:
+  • .claude/CLAUDE.md        — project instructions and context
+  • .claude/settings.local.json — tool permissions (auto-created)
+  • .claude/skills/          — project-level skills
+  • ~/.claude/CLAUDE.md      — your global instructions
+  • ~/.claude/skills/        — your personal skills
+
+  To add a skill: place a SKILL.md file in .claude/skills/ or ~/.claude/skills/
+  To customize behavior: edit .claude/CLAUDE.md in your project directory
+
 Notes:
 - Restart the kernel to stop the Claude session
 """
