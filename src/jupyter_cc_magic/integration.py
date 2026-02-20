@@ -19,11 +19,15 @@ def create_approval_cell(
     request_id: str,
     should_cleanup_prompts: bool,
     tool_use_id: str | None = None,
+    description: str = "",
 ) -> None:
     """Create a cell for user approval of code execution."""
     marker_id = tool_use_id if tool_use_id else request_id
-    # Add a marker comment at the beginning of the code if tool_use_id is provided
-    marker = f"# Claude cell [{marker_id}]"
+    # Add a [CC] comment describing what this cell does
+    if description:
+        marker = f"# [CC] {description}"
+    else:
+        marker = "# [CC]"
     marked_code = f"{marker}\n{code}"
 
     # Store code and request ID in IPython namespace for access

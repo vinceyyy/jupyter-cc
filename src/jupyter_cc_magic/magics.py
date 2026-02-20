@@ -61,7 +61,7 @@ _magic_instance: ClaudeCodeMagics | None = None
 @tool(
     "create_python_cell",
     "Create a cell with Python code in the IPython environment",
-    {"code": str},
+    {"code": str, "description": str},
 )
 async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
     """Handle create_python_cell tool calls - create cells and return immediately."""
@@ -74,6 +74,7 @@ async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
         }
 
     code = args.get("code", "")
+    description = args.get("description", "")
     if not code:
         # Ensure async checkpoint before returning
         await anyio.lowlevel.checkpoint()
@@ -113,7 +114,7 @@ async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
             }
 
         # Create cell in IPython
-        _magic_instance._create_approval_cell(code, request_id, tool_use_id)
+        _magic_instance._create_approval_cell(code, request_id, tool_use_id, description)
 
         # Increment the counter after successful cell creation
         _magic_instance._config_manager.create_python_cell_count += 1
@@ -185,10 +186,12 @@ class ClaudeCodeMagics(Magics):
 
         HelpEnd.priority = EscapedCommand.priority + 1
 
-    def _create_approval_cell(self, code: str, request_id: str, tool_use_id: str | None = None) -> None:
+    def _create_approval_cell(
+        self, code: str, request_id: str, tool_use_id: str | None = None, description: str = ""
+    ) -> None:
         """Create a cell for user approval of code execution."""
         should_replace = self._config_manager.should_cleanup_prompts or self._config_manager.replace_current_cell
-        create_approval_cell(self, code, request_id, should_replace, tool_use_id)
+        create_approval_cell(self, code, request_id, should_replace, tool_use_id, description)
 
     def _post_run_cell_hook(self, result: Any) -> None:
         """Hook that runs after each cell execution to process the queue."""

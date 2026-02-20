@@ -81,6 +81,12 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
         todos = tool_input.get("todos", [])
         return f"{display_name}({len(todos)} items)"
 
+    if tool_name == EXECUTE_PYTHON_TOOL_NAME:
+        description = tool_input.get("description", "")
+        if description:
+            return f'{display_name}("{description}")'
+        return display_name
+
     return display_name
 
 
