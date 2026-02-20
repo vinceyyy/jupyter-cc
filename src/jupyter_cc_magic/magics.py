@@ -425,10 +425,10 @@ Your client's request is <request>{prompt}</request>
         if self._client_manager is not None and self._client_manager.session_id:
             options.resume = self._client_manager.session_id
 
-        # Create and start the display in the **main thread** so the IPython
-        # DisplayHandle is associated with the current cell output.  The
-        # background thread (anyio.run) only mutates display state; the
-        # display's own refresh thread pushes updates to the notebook.
+        # Create and start the display in the **main thread** so ipywidgets
+        # are associated with the current cell output.  The background thread
+        # (anyio.run) only mutates display state (text_blocks, tool_calls);
+        # the main thread renders via display.poll() in the loop below.
         from .display import StreamingDisplay
 
         display = StreamingDisplay(verbose=verbose)
@@ -472,13 +472,20 @@ Your client's request is <request>{prompt}</request>
         # Install our handler temporarily
         try:
             original_handler = signal.signal(signal.SIGINT, interrupt_handler)
-            thread.join()
+            if display.is_jupyter:
+                # In Jupyter we must not block the main kernel thread.
+                # Widget comm messages are only delivered when the kernel
+                # processes IO, so we poll: let the thread run for a short
+                # interval, then render the current state from the main thread.
+                while thread.is_alive():
+                    thread.join(timeout=0.15)
+                    display.poll()
+            else:
+                thread.join()
         finally:
             # Restore original handler
             if original_handler is not None:
                 signal.signal(signal.SIGINT, original_handler)
-            # Stop the display after the thread finishes — safe because
-            # thread.join() has completed (or we were interrupted).
             display.stop()
 
         # Check for exceptions
