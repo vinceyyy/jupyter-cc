@@ -1,0 +1,232 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.conda/
+
+# Type checkers / linters
+.mypy_cache/
+.dmypy.json
+.pytype/
+.pyre/
+.ruff_cache/
+
+# Testing / Coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+nosetests.xml
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_metadata/
+
+# ===== JavaScript / TypeScript / Node =====
+node_modules/
+jspm_packages/
+bower_components/
+.npm/
+.pnpm-store/
+.yarn/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.next/
+.nuxt/
+.output/
+dist/
+out/
+
+# ===== macOS =====
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# ===== IDEs =====
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+*.vsix
+
+# JetBrains
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries
+.idea/**/shelf
+.idea/**/aws.xml
+.idea/**/contentModel.xml
+.idea/**/dataSources/
+.idea/**/dataSources*.xml
+.idea/**/sqlDataSources.xml
+.idea/**/dynamic.xml
+.idea/**/uiDesigner.xml
+.idea/**/dbnavigator.xml
+.idea/**/gradle.xml
+.idea/**/libraries
+.idea/**/mongoSettings.xml
+.idea/**/replstate.xml
+.idea/**/sonarlint/
+.idea/**/httpRequests/
+.idea/**/caches/
+*.iws
+out/
+
+# ===== Terraform / Pulumi / IaC =====
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Pulumi
+.pulumi/
+Pulumi.*.yaml
+!Pulumi.yaml
+
+# ===== Secrets / Keys / Credentials =====
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.template
+*.local
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+*.der
+*.pub
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+
+# Credential files
+*credentials*
+*credential*
+*secret*
+*secrets*
+*.secrets.*
+*password*
+*passwords*
+*token*
+*tokens*
+*apikey*
+*api_key*
+*api-key*
+
+# Cloud provider credentials
+.aws/credentials
+.azure/
+gcloud/
+serviceaccount*.json
+*-service-account*.json
+*-key.json
+*-credentials.json
+application_default_credentials.json
+
+# OAuth / Auth files
+oauth*.json
+client_secret*.json
+token.json
+refresh_token*
+
+# Config files that often contain secrets
+config.local.*
+settings.local.*
+local_settings.py
+*.local.yaml
+*.local.yml
+*.local.json
+*.local.toml
+
+# ===== Logs =====
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# ===== Misc =====
+*.bak
+*.swp
+*.swo
+*~
+.cache/
+tmp/
+temp/
+*.tmp
+*.temp
