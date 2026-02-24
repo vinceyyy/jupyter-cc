@@ -1,10 +1,10 @@
-"""Unit tests for jupyter_cc_magic.integration."""
+"""Unit tests for jupyter_cc.integration."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from jupyter_cc_magic.integration import create_approval_cell, process_cell_queue
+from jupyter_cc.integration import create_approval_cell, process_cell_queue
 
 
 def _make_parent(mock_shell: MagicMock) -> MagicMock:

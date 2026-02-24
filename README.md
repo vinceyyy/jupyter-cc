@@ -10,7 +10,7 @@ Built on the Claude Agent SDK with an in-process MCP server, jupyter-cc gives Cl
 
 ```python
 # Cell 1: Load the extension
-%load_ext jupyter_cc_magic
+%load_ext jupyter_cc
 
 # Cell 2: Ask Claude to analyze data
 %cc Load the sales.csv file and show summary statistics
@@ -27,9 +27,10 @@ Built on the Claude Agent SDK with an in-process MCP server, jupyter-cc gives Cl
 ### Prerequisites
 
 1. **Python 3.13+** -- check with `python --version`
-1. **Claude Code authentication** -- one of:
-   - Claude Code CLI installed (`claude --version`) -- install from [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code/overview)
-   - OR Claude Pro/Max subscription with API access
+1. **Claude Code CLI** -- install from [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code/overview), verify with `claude --version`
+1. **Authentication** -- one of:
+   - Claude Pro/Max subscription
+   - Anthropic API key
 1. **Jupyter** (for notebook usage) or **IPython** (for terminal usage):
    ```bash
    pip install jupyter
@@ -39,16 +40,14 @@ Built on the Claude Agent SDK with an in-process MCP server, jupyter-cc gives Cl
 
 ### Install
 
-Install directly from GitHub:
-
 ```bash
-pip install git+https://github.com/vinceyyy/jupyter-cc.git
+pip install jupyter-cc
 ```
 
 With uv:
 
 ```bash
-uv pip install git+https://github.com/vinceyyy/jupyter-cc.git
+uv pip install jupyter-cc
 ```
 
 ### Quick Start
@@ -57,14 +56,14 @@ After installation:
 
 ```python
 # In a Jupyter notebook or IPython session:
-%load_ext jupyter_cc_magic
+%load_ext jupyter_cc
 %cc Hello! What can you help me with?
 ```
 
 ### Uninstall
 
 ```bash
-pip uninstall jupyter-cc-magic
+pip uninstall jupyter-cc
 ```
 
 ### Development (for contributors)
@@ -80,7 +79,7 @@ uv sync
 ## Usage
 
 ```python
-%load_ext jupyter_cc_magic
+%load_ext jupyter_cc
 ```
 
 ### Magic Commands
@@ -131,7 +130,7 @@ For a detailed breakdown of what Claude sees when you run `%cc` -- variables, ce
 ## Project Structure
 
 ```
-src/jupyter_cc_magic/
+src/jupyter_cc/
 ├── __init__.py      # Extension entry point, permissions setup
 ├── magics.py        # %cc, %cc_new, %cc_cur magic commands, MCP server
 ├── client.py        # SDK client lifecycle, streaming, interrupt handling

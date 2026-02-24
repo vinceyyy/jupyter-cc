@@ -1,6 +1,6 @@
 [project]
-name = "jupyter-cc-magic"
-version = "1.0.0"
+name = "jupyter-cc"
+version = "0.1.0"
 description = "Jupyter magic for Claude Code — %cc brings agentic AI into your notebook cells"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -12,6 +12,11 @@ dependencies = [
     "ipywidgets>=8.1.8",
     "rich>=13.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/vinceyyy/jupyter-cc"
+Repository = "https://github.com/vinceyyy/jupyter-cc"
+Issues = "https://github.com/vinceyyy/jupyter-cc/issues"
 
 [dependency-groups]
 dev = [
@@ -37,12 +42,12 @@ select = ["E", "F", "W", "I", "B", "N", "UP", "ASYNC", "S", "PTH"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S603"]
 # Ported from upstream — string literals in prompts/help exceed 120 chars
-"src/jupyter_cc_magic/prompt.py" = ["E501", "S110"]
-"src/jupyter_cc_magic/constants.py" = ["E501"]
-"src/jupyter_cc_magic/magics.py" = ["E501", "F841", "S110"]
-"src/jupyter_cc_magic/integration.py" = ["E501", "F841"]
-"src/jupyter_cc_magic/history.py" = ["E501"]
-"src/jupyter_cc_magic/client.py" = ["E501"]
+"src/jupyter_cc/prompt.py" = ["E501", "S110"]
+"src/jupyter_cc/constants.py" = ["E501"]
+"src/jupyter_cc/magics.py" = ["E501", "F841", "S110"]
+"src/jupyter_cc/integration.py" = ["E501", "F841"]
+"src/jupyter_cc/history.py" = ["E501"]
+"src/jupyter_cc/client.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

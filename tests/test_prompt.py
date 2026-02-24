@@ -1,11 +1,11 @@
-"""Unit tests for jupyter_cc_magic.prompt."""
+"""Unit tests for jupyter_cc.prompt."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from jupyter_cc_magic.constants import EXECUTE_PYTHON_TOOL_NAME
-from jupyter_cc_magic.prompt import get_system_prompt, prepare_imported_files_content
+from jupyter_cc.constants import EXECUTE_PYTHON_TOOL_NAME
+from jupyter_cc.prompt import get_system_prompt, prepare_imported_files_content
 
 
 def test_system_prompt_jupyter() -> None:

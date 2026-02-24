@@ -1,4 +1,4 @@
-"""Automated smoke tests for jupyter_cc_magic."""
+"""Automated smoke tests for jupyter_cc."""
 
 import subprocess
 import sys
@@ -31,7 +31,7 @@ ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc_magic")
+ip.run_line_magic("load_ext", "jupyter_cc")
 print("PASS: Extension loaded")
 """)
     assert "PASS: Extension loaded" in output
@@ -41,7 +41,7 @@ print("PASS: Extension loaded")
 def test_version():
     """Version is correct."""
     output = run_ipython("""
-from jupyter_cc_magic import __version__
+from jupyter_cc import __version__
 print(f"Version: {__version__}")
 assert __version__ == "1.0.0", f"Expected 1.0.0, got {__version__}"
 print("PASS")
@@ -57,7 +57,7 @@ ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc_magic")
+ip.run_line_magic("load_ext", "jupyter_cc")
 ip.run_line_magic("cc", "--help")
 print("PASS")
 """)
@@ -75,7 +75,7 @@ ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc_magic")
+ip.run_line_magic("load_ext", "jupyter_cc")
 ip.run_line_magic("cc", "--max-cells 5")
 ip.run_line_magic("cc", "--model sonnet")
 ip.run_line_magic("cc", "--cells-to-load 3")
@@ -94,7 +94,7 @@ ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc_magic")
+ip.run_line_magic("load_ext", "jupyter_cc")
 magics = ip.magics_manager.magics
 line_magics = list(magics.get("line", {}).keys())
 for name in ["cc", "cc_new", "ccn", "cc_cur", "ccc"]:

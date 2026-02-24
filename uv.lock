@@ -852,8 +852,8 @@ wheels = [
 ]
 
 [[package]]
-name = "jupyter-cc-magic"
-version = "1.0.0"
+name = "jupyter-cc"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },

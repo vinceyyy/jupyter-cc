@@ -1,6 +1,6 @@
 """Example test to verify package imports correctly."""
 
-from jupyter_cc_magic import __version__
+from jupyter_cc import __version__
 
 
 def test_version():

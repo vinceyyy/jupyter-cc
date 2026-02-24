@@ -1,9 +1,9 @@
-"""Unit tests for jupyter_cc_magic.display."""
+"""Unit tests for jupyter_cc.display."""
 
 from __future__ import annotations
 
-from jupyter_cc_magic.constants import EXECUTE_PYTHON_TOOL_NAME
-from jupyter_cc_magic.display import StreamingDisplay, format_tool_call
+from jupyter_cc.constants import EXECUTE_PYTHON_TOOL_NAME
+from jupyter_cc.display import StreamingDisplay, format_tool_call
 
 
 def test_format_tool_call_read() -> None:

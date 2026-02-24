@@ -14,7 +14,7 @@ uv build                       # Build wheel/sdist
 ## Project Structure
 
 ```
-src/jupyter_cc_magic/
+src/jupyter_cc/
 ├── __init__.py      # Extension entry point: load_ipython_extension(), permissions setup
 ├── magics.py        # Core: %cc, %cc_new, %cc_cur magic commands, MCP server setup
 ├── client.py        # SDK client lifecycle, streaming, interrupt handling, message display
@@ -33,7 +33,7 @@ src/jupyter_cc_magic/
 
 ### Extension Lifecycle
 
-1. `%load_ext jupyter_cc_magic` -> `__init__.py:load_ipython_extension()`
+1. `%load_ext jupyter_cc` -> `__init__.py:load_ipython_extension()`
 1. Creates `.claude/settings.local.json` with default permissions (Bash, Read, Write, etc.)
 1. Registers `ClaudeCodeMagics` and `CellWatcher` hooks
 

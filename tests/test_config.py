@@ -1,10 +1,10 @@
-"""Unit tests for jupyter_cc_magic.config.ConfigManager."""
+"""Unit tests for jupyter_cc.config.ConfigManager."""
 
 from __future__ import annotations
 
 from argparse import Namespace
 
-from jupyter_cc_magic.config import ConfigManager
+from jupyter_cc.config import ConfigManager
 
 
 def test_default_values() -> None:

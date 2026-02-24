@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from jupyter_cc_magic.variables import VariableTracker
+from jupyter_cc.variables import VariableTracker
 
 
 @pytest.fixture

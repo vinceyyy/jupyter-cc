@@ -62,7 +62,7 @@ Each section is explained below.
 
 ## Variable Tracking
 
-**Source**: `src/jupyter_cc_magic/variables.py` -- `VariableTracker.get_variables_info()`
+**Source**: `src/jupyter_cc/variables.py` -- `VariableTracker.get_variables_info()`
 
 Claude sees only what **changed** since the last `%cc` call, not a full dump of every variable. Changes are grouped into three categories:
 
@@ -100,7 +100,7 @@ Removed variables:
 
 ## Cell History
 
-**Source**: `src/jupyter_cc_magic/history.py` -- `HistoryManager`
+**Source**: `src/jupyter_cc/history.py` -- `HistoryManager`
 
 Claude sees cells executed since the last `%cc` call, formatted as XML:
 
@@ -143,7 +143,7 @@ df["revenue"].sum()
 
 ## Image Capture
 
-**Source**: `src/jupyter_cc_magic/capture.py` -- `extract_images_from_captured()`
+**Source**: `src/jupyter_cc/capture.py` -- `extract_images_from_captured()`
 
 When code uses IPython's `capture_output()` pattern with the special variable `_claude_captured_output`, images are extracted and sent to Claude as base64-encoded content blocks alongside the text prompt.
 
@@ -177,7 +177,7 @@ Claude can see and reference these images in its response -- for example, sugges
 
 ## System Prompt
 
-**Source**: `src/jupyter_cc_magic/prompt.py` -- `get_system_prompt()`
+**Source**: `src/jupyter_cc/prompt.py` -- `get_system_prompt()`
 
 The system prompt is appended to the Claude Code preset (`"claude_code"`) and varies based on the environment:
 
@@ -231,7 +231,7 @@ The `create_python_cell` tool accepts two parameters:
 
 ## Session State
 
-**Source**: `src/jupyter_cc_magic/client.py` -- `ClaudeClientManager`
+**Source**: `src/jupyter_cc/client.py` -- `ClaudeClientManager`
 
 jupyter-cc maintains conversation continuity across `%cc` calls:
 
@@ -243,7 +243,7 @@ This means Claude remembers the full conversation within a session. You can say 
 
 ## SDK Configuration
 
-**Source**: `src/jupyter_cc_magic/magics.py` -- `ClaudeAgentOptions` construction
+**Source**: `src/jupyter_cc/magics.py` -- `ClaudeAgentOptions` construction
 
 The `ClaudeAgentOptions` object configures the Claude Agent SDK:
 
@@ -274,7 +274,7 @@ This means your project's `CLAUDE.md` instructions and skills are automatically 
 
 ## Imported Files
 
-**Source**: `src/jupyter_cc_magic/prompt.py` -- `prepare_imported_files_content()`
+**Source**: `src/jupyter_cc/prompt.py` -- `prepare_imported_files_content()`
 
 The `--import` option includes file contents in the first message of a new conversation:
 

@@ -1,10 +1,10 @@
-"""Unit tests for jupyter_cc_magic.variables.VariableTracker."""
+"""Unit tests for jupyter_cc.variables.VariableTracker."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from jupyter_cc_magic.variables import VariableTracker
+from jupyter_cc.variables import VariableTracker
 
 
 def test_no_variables(variable_tracker: VariableTracker) -> None:
