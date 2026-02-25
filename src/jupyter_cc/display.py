@@ -150,6 +150,7 @@ class StreamingDisplay:
         self._error: str | None = None
         self._interrupted = False
         self._result_meta: dict[str, Any] | None = None
+        self._stopped = False
         # Auto-detect only works from the main IPython thread.
         self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
         self._fallback = False
@@ -185,7 +186,8 @@ class StreamingDisplay:
         self._fallback = True
 
     def stop(self) -> None:
-        """Stop the live display, render final output."""
+        """Stop the live display, render final output (removes spinner)."""
+        self._stopped = True
         if self._pending_timer is not None:
             self._pending_timer.cancel()
             self._pending_timer = None
@@ -304,14 +306,17 @@ class StreamingDisplay:
         """Build full HTML string from current state, preserving arrival order."""
         parts: list[str] = []
 
-        # CSS
+        # CSS (includes spinner keyframes)
         parts.append(self._render_css())
 
         parts.append('<div class="jcc-output">')
 
         # Header with model name
         if self._model:
-            parts.append(f'<div class="jcc-header">{html_module.escape(self._model)}</div>')
+            parts.append(f'<div class="jcc-header">Using model: {html_module.escape(self._model)}</div>')
+
+        # Scrollable body with distinct background for SDK information
+        parts.append('<div class="jcc-body">')
 
         # Items in arrival order
         for kind, item in self._items:
@@ -339,15 +344,21 @@ class StreamingDisplay:
         if not has_content:
             parts.append('<div class="jcc-waiting">Thinking...</div>')
 
+        parts.append("</div>")  # close .jcc-body
+
+        # Spinner at bottom while still running
+        if not self._stopped:
+            parts.append('<div class="jcc-spinner"><div class="jcc-spinner-dot"></div><span>Running\u2026</span></div>')
+
         # Result metadata footer
         if self._result_meta:
             parts.append(self._render_footer())
 
-        parts.append("</div>")
+        parts.append("</div>")  # close .jcc-output
         return "".join(parts)
 
     def _render_footer(self) -> str:
-        """Render result metadata footer."""
+        """Render result metadata footer (duration, tokens, turns)."""
         meta = self._result_meta
         if not meta:
             return ""
@@ -356,9 +367,6 @@ class StreamingDisplay:
         if duration_ms:
             secs = duration_ms / 1000
             segments.append(f"{secs:.1f}s")
-        cost = meta.get("total_cost_usd")
-        if cost is not None:
-            segments.append(f"${cost:.4f}")
         usage = meta.get("usage")
         if usage:
             input_tokens = usage.get("input_tokens", 0)
@@ -370,7 +378,7 @@ class StreamingDisplay:
             segments.append(f"{num_turns} turn{'s' if num_turns != 1 else ''}")
         if not segments:
             return ""
-        return f'<div class="jcc-footer">{" · ".join(segments)}</div>'
+        return f'<div class="jcc-footer">{" \u00b7 ".join(segments)}</div>'
 
     def _render_css(self) -> str:
         """Return <style> block with all .jcc-* classes. Cached after first call."""
@@ -379,12 +387,16 @@ class StreamingDisplay:
 
         self._css_cache = (
             "<style>"
+            "@keyframes jcc-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}"
             ".jcc-output { font-family: var(--jp-ui-font-family, -apple-system, BlinkMacSystemFont, sans-serif);"
             " font-size: var(--jp-ui-font-size1, 13px);"
-            " color: var(--jp-ui-font-color1, #333); padding: 8px 0;"
-            " max-height: 400px; overflow-y: auto; }"
+            " color: var(--jp-ui-font-color1, #333); padding: 8px 0; }"
             ".jcc-header { color: var(--jp-ui-font-color2, #888);"
             " font-size: 0.85em; margin-bottom: 8px; }"
+            ".jcc-body { background: var(--jp-layout-color1, #fafafa);"
+            " border: 1px solid var(--jp-border-color2, #e0e0e0);"
+            " border-radius: 4px; padding: 8px 12px;"
+            " max-height: 400px; overflow-y: auto; }"
             ".jcc-tool { color: var(--jp-ui-font-color2, #666);"
             " font-size: 0.9em; padding: 1px 0;"
             " font-family: var(--jp-code-font-family, monospace); }"
@@ -403,8 +415,14 @@ class StreamingDisplay:
             ".jcc-error { color: var(--jp-error-color1, #d32f2f); margin-top: 8px; }"
             ".jcc-interrupt { color: var(--jp-warn-color1, #f57c00); margin-top: 8px; }"
             ".jcc-waiting { color: var(--jp-ui-font-color3, #aaa); font-style: italic; }"
+            ".jcc-spinner { display: flex; align-items: center; gap: 8px;"
+            " padding: 6px 0; color: var(--jp-ui-font-color2, #888); font-size: 0.85em; }"
+            ".jcc-spinner-dot { width: 12px; height: 12px;"
+            " border: 2px solid var(--jp-border-color1, #e0e0e0);"
+            " border-top: 2px solid var(--jp-brand-color1, #4a90d9);"
+            " border-radius: 50%; animation: jcc-spin .8s linear infinite; }"
             ".jcc-footer { color: var(--jp-ui-font-color3, #999); font-size: 0.8em;"
-            " margin-top: 8px; padding-top: 6px;"
+            " margin-top: 6px; padding-top: 6px;"
             " border-top: 1px solid var(--jp-border-color2, #e0e0e0); }"
             "</style>"
         )
@@ -424,7 +442,7 @@ class StreamingDisplay:
     def _print_fallback_latest(self) -> None:
         """Print only the most recently added item (avoids duplicating earlier output)."""
         if self._model and not self._items:
-            print(f"Model: {self._model}", flush=True)
+            print(f"Using model: {self._model}", flush=True)
         if self._items:
             kind, item = self._items[-1]
             if kind == "text":

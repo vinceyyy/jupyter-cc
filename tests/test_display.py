@@ -84,11 +84,11 @@ def test_render_jupyter_html_empty() -> None:
 
 
 def test_render_jupyter_html_with_model() -> None:
-    """Model name appears in header."""
+    """Model name appears in header with 'Using model:' prefix."""
     display = StreamingDisplay(jupyter=True)
     display.set_model("claude-sonnet-4-20250514")
     html = display._render_jupyter_html()
-    assert "claude-sonnet-4-20250514" in html
+    assert "Using model: claude-sonnet-4-20250514" in html
     assert "jcc-header" in html
 
 
@@ -286,12 +286,25 @@ def test_nl2br_preserves_single_newlines() -> None:
 # ------------------------------------------------------------------
 
 
-def test_scrollable_container_css() -> None:
-    """The CSS includes max-height and overflow-y for scrollable output."""
+def test_scrollable_body_css() -> None:
+    """The CSS includes max-height and overflow-y on .jcc-body (not .jcc-output)."""
     display = StreamingDisplay(jupyter=True)
     css = display._render_css()
+    assert "jcc-body" in css
     assert "max-height" in css
     assert "overflow-y" in css
+
+
+def test_body_container_in_html() -> None:
+    """Items are wrapped in a .jcc-body container with distinct background."""
+    display = StreamingDisplay(jupyter=True)
+    display.add_text("hello")
+    html = display._render_jupyter_html()
+    assert "jcc-body" in html
+    # Body should contain the content
+    body_start = html.index("jcc-body")
+    content_pos = html.index("hello")
+    assert body_start < content_pos
 
 
 # ------------------------------------------------------------------
@@ -300,7 +313,7 @@ def test_scrollable_container_css() -> None:
 
 
 def test_set_result_renders_footer() -> None:
-    """set_result stores metadata that renders in a footer."""
+    """set_result stores metadata that renders in a footer (no cost)."""
     display = StreamingDisplay(jupyter=True)
     display.add_text("done")
     display.set_result(
@@ -312,9 +325,10 @@ def test_set_result_renders_footer() -> None:
     html = display._render_jupyter_html()
     assert "jcc-footer" in html
     assert "2.5s" in html
-    assert "$0.0045" in html
     assert "300 tokens" in html
     assert "3 turns" in html
+    # Cost should NOT be shown
+    assert "$" not in html
 
 
 def test_set_result_partial_metadata() -> None:
@@ -379,3 +393,37 @@ def test_fallback_tool_prefix(capsys: object) -> None:
     output = captured.getvalue()
     assert "Tool:" in output
     assert "Read" in output
+
+
+# ------------------------------------------------------------------
+# Spinner tests
+# ------------------------------------------------------------------
+
+
+def test_spinner_shown_while_running() -> None:
+    """Spinner is visible in HTML before stop() is called."""
+    display = StreamingDisplay(jupyter=True)
+    display.add_text("working...")
+    html = display._render_jupyter_html()
+    assert '<div class="jcc-spinner">' in html
+    assert "Running" in html
+
+
+def test_spinner_hidden_after_stop() -> None:
+    """Spinner div disappears from HTML after stop() is called."""
+    display = StreamingDisplay(jupyter=True)
+    display.add_text("done")
+    display.stop()
+    html = display._render_jupyter_html()
+    assert '<div class="jcc-spinner">' not in html
+
+
+def test_spinner_below_body() -> None:
+    """Spinner appears after the .jcc-body container, not inside it."""
+    display = StreamingDisplay(jupyter=True)
+    display.add_text("content")
+    html = display._render_jupyter_html()
+    spinner_pos = html.index("jcc-spinner")
+    # Spinner should come after the body content
+    content_pos = html.index("content")
+    assert spinner_pos > content_pos
