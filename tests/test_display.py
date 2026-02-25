@@ -63,3 +63,89 @@ def test_streaming_display_lifecycle() -> None:
     display.set_session_id("session-abc")
     display.stop()
     # No exception means success
+
+
+# ------------------------------------------------------------------
+# HTML renderer tests (Jupyter mode)
+# ------------------------------------------------------------------
+
+
+def test_render_jupyter_html_empty() -> None:
+    """Empty state renders a waiting message."""
+    display = StreamingDisplay(jupyter=True)
+    html = display._render_jupyter_html()
+    assert "jcc-output" in html
+    assert "Thinking" in html
+
+
+def test_render_jupyter_html_with_model() -> None:
+    """Model name appears in header."""
+    display = StreamingDisplay(jupyter=True)
+    display.set_model("claude-sonnet-4-20250514")
+    html = display._render_jupyter_html()
+    assert "claude-sonnet-4-20250514" in html
+    assert "jcc-header" in html
+
+
+def test_render_jupyter_html_with_text() -> None:
+    """Text blocks are rendered as markdown HTML."""
+    display = StreamingDisplay(jupyter=True)
+    display.add_text("Hello **world**")
+    html = display._render_jupyter_html()
+    assert "<strong>world</strong>" in html
+    assert "jcc-content" in html
+
+
+def test_render_jupyter_html_with_tool_calls() -> None:
+    """Tool calls show with appropriate CSS classes."""
+    display = StreamingDisplay(jupyter=True)
+    display.add_tool_call("Read", {"file_path": "/home/user/test.py"}, "t1")
+    html = display._render_jupyter_html()
+    assert "jcc-tool" in html
+    assert "Read" in html
+    assert "/home/user/test.py" in html
+
+
+def test_render_jupyter_html_completed_tool() -> None:
+    """Completed tool calls show checkmark."""
+    display = StreamingDisplay(jupyter=True)
+    display.add_tool_call("Read", {"file_path": "/home/user/test.py"}, "t1")
+    display.complete_tool_call("t1")
+    html = display._render_jupyter_html()
+    assert "\u2713" in html
+
+
+def test_render_jupyter_html_error() -> None:
+    """Errors render with error styling."""
+    display = StreamingDisplay(jupyter=True)
+    display.show_error("Connection lost")
+    html = display._render_jupyter_html()
+    assert "jcc-error" in html
+    assert "Connection lost" in html
+
+
+def test_render_jupyter_html_interrupt() -> None:
+    """Interrupt notice is shown."""
+    display = StreamingDisplay(jupyter=True)
+    display.show_interrupt()
+    html = display._render_jupyter_html()
+    assert "interrupted" in html.lower() or "Interrupted" in html
+
+
+def test_throttled_refresh_skips_rapid_updates() -> None:
+    """Rapid calls to _refresh are throttled."""
+    import time
+
+    display = StreamingDisplay(jupyter=True)
+    display._widget = type("FakeWidget", (), {"value": "", "layout": type("L", (), {"display": ""})()})()
+    display._last_refresh = 0.0
+
+    display.add_text("first")
+    first_html = display._widget.value
+    assert first_html != ""
+
+    display._last_refresh = time.monotonic()
+    display._text_blocks.append("second")
+    display._refresh()
+    assert display._widget.value == first_html
+    assert display._dirty is True

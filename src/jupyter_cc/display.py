@@ -1,18 +1,23 @@
 """
-Rich streaming display for Claude responses.
+Streaming display for Claude responses.
 
 In Jupyter notebooks:
-  - Shows a CSS spinner while running (pure client-side animation)
-  - Renders the final result once after completion via IPython.display.HTML
+  - Shows a CSS spinner while loading
+  - Live-updates an ipywidgets.HTML widget with throttled refresh
+  - Renders markdown text, tool calls, errors via native HTML with JupyterLab theme variables
 
-In terminals, uses Rich Live for ANSI-based live rendering.
-Falls back to plain print() if neither works.
+In terminals:
+  - Falls back to plain print()
 """
 
 from __future__ import annotations
 
+import html as html_module
 import logging
+import time
 from typing import Any
+
+import markdown
 
 from .constants import EXECUTE_PYTHON_TOOL_NAME
 from .integration import is_in_jupyter_notebook
@@ -20,7 +25,7 @@ from .integration import is_in_jupyter_notebook
 logger = logging.getLogger(__name__)
 
 # Pure-CSS spinner shown while running.
-# Runs entirely in the browser — no Python-side refresh needed.
+# Runs entirely in the browser -- no Python-side refresh needed.
 _CSS_SPINNER_HTML = (
     '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
     'font-family:sans-serif;font-size:13px;color:#888">'
@@ -32,8 +37,8 @@ _CSS_SPINNER_HTML = (
     "100%{transform:rotate(360deg)}}</style>"
 )
 
-# Braille spinner frames for active tool calls in terminal mode
-_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+# Minimum interval between widget refreshes (seconds)
+_REFRESH_INTERVAL = 0.1
 
 
 def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -124,14 +129,11 @@ class StreamingDisplay:
     Display for Claude responses.
 
     Jupyter mode:
-      - CSS spinner while running (pure client-side, no Python refresh)
-      - Final result rendered once via IPython.display after completion
-
-    Terminal mode:
-      - Rich Live for ANSI-based in-place rendering
+      - CSS spinner initially, then live-updated HTML widget
+      - Throttled refresh to avoid excessive DOM updates
 
     Fallback:
-      - Plain print()
+      - Plain print() for terminals and environments without ipywidgets
 
     Must be created and start()'d from the main IPython thread.
     State-mutating methods (add_text, add_tool_call, etc.) are safe from any thread.
@@ -145,14 +147,19 @@ class StreamingDisplay:
         self._session_id: str | None = None
         self._error: str | None = None
         self._interrupted = False
-        self._spinner_tick = 0
-        self._live: Any | None = None  # rich.live.Live or None
         # Auto-detect only works from the main IPython thread.
         self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
         self._fallback = False
 
-        # Jupyter spinner widget (created in start())
-        self._spinner_widget: Any | None = None  # ipywidgets.HTML
+        # Jupyter HTML widget (created in start())
+        self._widget: Any | None = None  # ipywidgets.HTML
+
+        # Throttling state
+        self._last_refresh = 0.0
+        self._dirty = False
+
+        # CSS cache
+        self._css_cache: str | None = None
 
     def start(self) -> None:
         """Start the live display. Must be called from the main IPython thread."""
@@ -161,49 +168,24 @@ class StreamingDisplay:
                 import ipywidgets as widgets
                 from IPython.display import display
 
-                self._spinner_widget = widgets.HTML(value=_CSS_SPINNER_HTML)
-                display(self._spinner_widget)
+                self._widget = widgets.HTML(value=_CSS_SPINNER_HTML)
+                display(self._widget)
             except Exception:
                 logger.debug("ipywidgets unavailable, falling back to print()", exc_info=True)
                 self._jupyter = False
                 self._fallback = True
             return
 
-        try:
-            from rich.live import Live
-
-            self._live = Live(
-                self._render(),
-                refresh_per_second=12,
-                transient=False,
-            )
-            self._live.start()
-        except Exception:
-            logger.debug("Rich Live display unavailable, falling back to print()")
-            self._fallback = True
+        # Terminal mode: no Rich, just fallback
+        self._fallback = True
 
     def stop(self) -> None:
         """Stop the live display, render final output."""
-        if self._jupyter:
-            # Hide the spinner
-            if self._spinner_widget is not None:
-                self._spinner_widget.layout.display = "none"
-            # Render final result
-            try:
-                from IPython.display import HTML, display
-
-                display(HTML(self._render_html_string()))
-            except Exception:
-                logger.debug("Error rendering final Jupyter content", exc_info=True)
+        if self._jupyter and self._widget is not None:
+            self._refresh(force=True)
             return
 
-        if self._live is not None:
-            try:
-                self._live.update(self._render())
-                self._live.stop()
-            except Exception:
-                logger.debug("Error stopping Rich Live display", exc_info=True)
-            self._live = None
+        # Terminal fallback: no-op (all output already printed incrementally)
 
     def set_model(self, model: str) -> None:
         """Set the model name shown in the header."""
@@ -251,87 +233,108 @@ class StreamingDisplay:
     # Internal
     # ------------------------------------------------------------------
 
-    def _refresh(self) -> None:
-        """Push the latest render to the display (terminal/fallback only).
+    def _refresh(self, *, force: bool = False) -> None:
+        """Push the latest render to the display.
 
-        In Jupyter mode this is a no-op — result is rendered once in stop().
+        In Jupyter mode, updates the widget HTML with throttling.
+        In fallback mode, prints incrementally.
         """
         if self._fallback:
             self._print_fallback_latest()
             return
 
-        if self._jupyter:
+        if not self._jupyter or self._widget is None:
             return
 
-        if self._live is not None:
-            try:
-                self._spinner_tick = (self._spinner_tick + 1) % len(_SPINNER_FRAMES)
-                self._live.update(self._render())
-            except Exception:
-                logger.debug("Error refreshing Rich Live display", exc_info=True)
+        now = time.monotonic()
+        if not force and (now - self._last_refresh) < _REFRESH_INTERVAL:
+            self._dirty = True
+            return
 
-    def _render(self) -> Any:
-        """Build the Rich renderable for the current state."""
-        from rich.console import Group
-        from rich.markdown import Markdown
-        from rich.panel import Panel
-        from rich.text import Text
+        self._widget.value = self._render_jupyter_html()
+        self._last_refresh = now
+        self._dirty = False
 
-        parts: list[Any] = []
+    def _render_jupyter_html(self) -> str:
+        """Build full HTML string from current state."""
+        parts: list[str] = []
 
-        # Model header
+        # CSS
+        parts.append(self._render_css())
+
+        parts.append('<div class="jcc-output">')
+
+        # Header with model name
         if self._model:
-            parts.append(Text(f"Model: {self._model}", style="bold cyan"))
-            parts.append(Text(""))
-
-        # Text blocks
-        for block in self._text_blocks:
-            parts.append(Markdown(block))
-            parts.append(Text(""))
+            parts.append(f'<div class="jcc-header">{html_module.escape(self._model)}</div>')
 
         # Tool calls
-        for entry in self._tool_calls:
-            if entry.completed:
-                indicator = Text("  \u2713 ", style="bold green")
-            else:
-                frame = _SPINNER_FRAMES[self._spinner_tick % len(_SPINNER_FRAMES)]
-                indicator = Text(f"  {frame} ", style="bold yellow")
-            line = Text.assemble(indicator, entry.display_text)
-            parts.append(line)
+        if self._tool_calls:
+            parts.append('<div class="jcc-tools">')
+            for entry in self._tool_calls:
+                escaped_text = html_module.escape(entry.display_text)
+                if entry.completed:
+                    parts.append(f'<div class="jcc-tool done">\u2713 {escaped_text}</div>')
+                else:
+                    parts.append(f'<div class="jcc-tool">\u23f3 {escaped_text}</div>')
+            parts.append("</div>")
 
-        # Interrupt notice
-        if self._interrupted:
-            parts.append(Text(""))
-            parts.append(Text("Query interrupted by user", style="bold yellow"))
+        # Text content (markdown)
+        if self._text_blocks:
+            combined = "\n\n".join(self._text_blocks)
+            parts.append(f'<div class="jcc-content">{self._md_to_html(combined)}</div>')
 
         # Error
         if self._error:
-            parts.append(Text(""))
-            parts.append(Text(f"Error: {self._error}", style="bold red"))
+            parts.append(f'<div class="jcc-error">{html_module.escape(self._error)}</div>')
 
-        # Session ID footer
-        if self._session_id:
-            parts.append(Text(""))
-            parts.append(Text(f"Session: {self._session_id}", style="dim"))
+        # Interrupt
+        if self._interrupted:
+            parts.append('<div class="jcc-interrupt">Interrupted by user</div>')
 
-        if not parts:
-            parts.append(Text("Waiting for response...", style="dim italic"))
+        # Empty state
+        has_content = self._model or self._text_blocks or self._tool_calls or self._error or self._interrupted
+        if not has_content:
+            parts.append('<div class="jcc-waiting">Thinking...</div>')
 
-        return Panel(Group(*parts), title="Claude", border_style="blue", expand=True)
+        parts.append("</div>")
+        return "".join(parts)
 
-    def _render_html_string(self) -> str:
-        """Render content to an HTML string for Jupyter."""
-        import io
+    def _render_css(self) -> str:
+        """Return <style> block with all .jcc-* classes. Cached after first call."""
+        if self._css_cache is not None:
+            return self._css_cache
 
-        from rich.console import Console
+        self._css_cache = (
+            "<style>"
+            ".jcc-output { font-family: var(--jp-ui-font-family, -apple-system, BlinkMacSystemFont, sans-serif);"
+            " font-size: var(--jp-ui-font-size1, 13px);"
+            " color: var(--jp-ui-font-color1, #333); padding: 8px 0; }"
+            ".jcc-header { color: var(--jp-ui-font-color2, #888);"
+            " font-size: 0.85em; margin-bottom: 8px; }"
+            ".jcc-tool { color: var(--jp-ui-font-color2, #666);"
+            " font-size: 0.9em; padding: 1px 0;"
+            " font-family: var(--jp-code-font-family, monospace); }"
+            ".jcc-tool.done { opacity: 0.6; }"
+            ".jcc-tools { margin-bottom: 8px; }"
+            ".jcc-content { line-height: 1.5; }"
+            ".jcc-content p { margin: 0.4em 0; }"
+            ".jcc-content pre { background: var(--jp-layout-color2, #f5f5f5);"
+            " padding: 8px 12px; border-radius: 4px; overflow-x: auto; }"
+            ".jcc-content code { font-family: var(--jp-code-font-family, monospace);"
+            " font-size: 0.9em; }"
+            ".jcc-content p code { background: var(--jp-layout-color2, #f5f5f5);"
+            " padding: 1px 4px; border-radius: 3px; }"
+            ".jcc-error { color: var(--jp-error-color1, #d32f2f); margin-top: 8px; }"
+            ".jcc-interrupt { color: var(--jp-warn-color1, #f57c00); margin-top: 8px; }"
+            ".jcc-waiting { color: var(--jp-ui-font-color3, #aaa); font-style: italic; }"
+            "</style>"
+        )
+        return self._css_cache
 
-        # force_jupyter=False prevents Rich from calling IPython.display()
-        # internally (which would duplicate our explicit display in stop()).
-        # file=StringIO prevents writing to stdout.
-        console = Console(record=True, width=120, force_jupyter=False, force_terminal=True, file=io.StringIO())
-        console.print(self._render())
-        html = console.export_html(inline_styles=True)
-        return f'<div style="font-family: monospace; font-size: 13px;">{html}</div>'
+    def _md_to_html(self, text: str) -> str:
+        """Convert markdown text to HTML."""
+        return markdown.markdown(text, extensions=["fenced_code", "tables"])
 
     # ------------------------------------------------------------------
     # Fallback: plain print for environments where nothing else works
