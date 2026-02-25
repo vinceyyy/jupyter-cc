@@ -144,11 +144,12 @@ class StreamingDisplay:
     def __init__(self, *, verbose: bool = False, jupyter: bool | None = None) -> None:
         self._verbose = verbose
         self._model: str | None = None
-        self._text_blocks: list[str] = []
-        self._tool_calls: list[_ToolCallEntry] = []
+        # Single ordered list: ("text", str) | ("tool", _ToolCallEntry) | ("thinking", str)
+        self._items: list[tuple[str, Any]] = []
         self._session_id: str | None = None
         self._error: str | None = None
         self._interrupted = False
+        self._result_meta: dict[str, Any] | None = None
         # Auto-detect only works from the main IPython thread.
         self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
         self._fallback = False
@@ -201,24 +202,46 @@ class StreamingDisplay:
 
     def add_text(self, text: str) -> None:
         """Append a text block to the display."""
-        self._text_blocks.append(text)
+        self._items.append(("text", text))
         self._refresh()
 
     def add_tool_call(self, tool_name: str, tool_input: dict[str, Any], tool_id: str) -> None:
-        """Add an active tool call (shown with spinner indicator)."""
+        """Add an active tool call (shown with "Tool:" prefix)."""
         display_text = format_tool_call(tool_name, tool_input)
         entry = _ToolCallEntry(display_text, tool_id)
-        self._tool_calls.append(entry)
+        self._items.append(("tool", entry))
         if self._verbose:
             entry.display_text += f"\n  Arguments: {tool_input}"
         self._refresh()
 
     def complete_tool_call(self, tool_id: str) -> None:
-        """Mark a tool call as completed (spinner -> checkmark)."""
-        for entry in self._tool_calls:
-            if entry.tool_id == tool_id:
-                entry.completed = True
+        """Mark a tool call as completed (prefix -> checkmark)."""
+        for kind, item in self._items:
+            if kind == "tool" and item.tool_id == tool_id:
+                item.completed = True
                 break
+        self._refresh()
+
+    def add_thinking(self, text: str) -> None:
+        """Append a thinking block to the display."""
+        self._items.append(("thinking", text))
+        self._refresh()
+
+    def set_result(
+        self,
+        *,
+        duration_ms: int = 0,
+        total_cost_usd: float | None = None,
+        usage: dict[str, Any] | None = None,
+        num_turns: int = 0,
+    ) -> None:
+        """Store result metadata shown in the footer."""
+        self._result_meta = {
+            "duration_ms": duration_ms,
+            "total_cost_usd": total_cost_usd,
+            "usage": usage,
+            "num_turns": num_turns,
+        }
         self._refresh()
 
     def set_session_id(self, session_id: str) -> None:
@@ -278,7 +301,7 @@ class StreamingDisplay:
             self._refresh()
 
     def _render_jupyter_html(self) -> str:
-        """Build full HTML string from current state."""
+        """Build full HTML string from current state, preserving arrival order."""
         parts: list[str] = []
 
         # CSS
@@ -290,21 +313,18 @@ class StreamingDisplay:
         if self._model:
             parts.append(f'<div class="jcc-header">{html_module.escape(self._model)}</div>')
 
-        # Tool calls
-        if self._tool_calls:
-            parts.append('<div class="jcc-tools">')
-            for entry in self._tool_calls:
-                escaped_text = html_module.escape(entry.display_text)
-                if entry.completed:
+        # Items in arrival order
+        for kind, item in self._items:
+            if kind == "text":
+                parts.append(f'<div class="jcc-content">{self._md_to_html(item)}</div>')
+            elif kind == "tool":
+                escaped_text = html_module.escape(item.display_text)
+                if item.completed:
                     parts.append(f'<div class="jcc-tool done">\u2713 {escaped_text}</div>')
                 else:
-                    parts.append(f'<div class="jcc-tool">\u23f3 {escaped_text}</div>')
-            parts.append("</div>")
-
-        # Text content (markdown)
-        if self._text_blocks:
-            combined = "\n\n".join(self._text_blocks)
-            parts.append(f'<div class="jcc-content">{self._md_to_html(combined)}</div>')
+                    parts.append(f'<div class="jcc-tool">Tool: {escaped_text}</div>')
+            elif kind == "thinking":
+                parts.append(f'<div class="jcc-thinking">{html_module.escape(item)}</div>')
 
         # Error
         if self._error:
@@ -315,12 +335,42 @@ class StreamingDisplay:
             parts.append('<div class="jcc-interrupt">Interrupted by user</div>')
 
         # Empty state
-        has_content = self._model or self._text_blocks or self._tool_calls or self._error or self._interrupted
+        has_content = self._model or self._items or self._error or self._interrupted
         if not has_content:
             parts.append('<div class="jcc-waiting">Thinking...</div>')
 
+        # Result metadata footer
+        if self._result_meta:
+            parts.append(self._render_footer())
+
         parts.append("</div>")
         return "".join(parts)
+
+    def _render_footer(self) -> str:
+        """Render result metadata footer."""
+        meta = self._result_meta
+        if not meta:
+            return ""
+        segments: list[str] = []
+        duration_ms = meta.get("duration_ms", 0)
+        if duration_ms:
+            secs = duration_ms / 1000
+            segments.append(f"{secs:.1f}s")
+        cost = meta.get("total_cost_usd")
+        if cost is not None:
+            segments.append(f"${cost:.4f}")
+        usage = meta.get("usage")
+        if usage:
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            if input_tokens or output_tokens:
+                segments.append(f"{input_tokens + output_tokens:,} tokens")
+        num_turns = meta.get("num_turns", 0)
+        if num_turns:
+            segments.append(f"{num_turns} turn{'s' if num_turns != 1 else ''}")
+        if not segments:
+            return ""
+        return f'<div class="jcc-footer">{" · ".join(segments)}</div>'
 
     def _render_css(self) -> str:
         """Return <style> block with all .jcc-* classes. Cached after first call."""
@@ -331,14 +381,17 @@ class StreamingDisplay:
             "<style>"
             ".jcc-output { font-family: var(--jp-ui-font-family, -apple-system, BlinkMacSystemFont, sans-serif);"
             " font-size: var(--jp-ui-font-size1, 13px);"
-            " color: var(--jp-ui-font-color1, #333); padding: 8px 0; }"
+            " color: var(--jp-ui-font-color1, #333); padding: 8px 0;"
+            " max-height: 400px; overflow-y: auto; }"
             ".jcc-header { color: var(--jp-ui-font-color2, #888);"
             " font-size: 0.85em; margin-bottom: 8px; }"
             ".jcc-tool { color: var(--jp-ui-font-color2, #666);"
             " font-size: 0.9em; padding: 1px 0;"
             " font-family: var(--jp-code-font-family, monospace); }"
             ".jcc-tool.done { opacity: 0.6; }"
-            ".jcc-tools { margin-bottom: 8px; }"
+            ".jcc-thinking { color: var(--jp-ui-font-color3, #999);"
+            " font-style: italic; font-size: 0.85em; padding: 2px 0;"
+            " white-space: pre-wrap; }"
             ".jcc-content { line-height: 1.5; }"
             ".jcc-content p { margin: 0.4em 0; }"
             ".jcc-content pre { background: var(--jp-layout-color2, #f5f5f5);"
@@ -350,6 +403,9 @@ class StreamingDisplay:
             ".jcc-error { color: var(--jp-error-color1, #d32f2f); margin-top: 8px; }"
             ".jcc-interrupt { color: var(--jp-warn-color1, #f57c00); margin-top: 8px; }"
             ".jcc-waiting { color: var(--jp-ui-font-color3, #aaa); font-style: italic; }"
+            ".jcc-footer { color: var(--jp-ui-font-color3, #999); font-size: 0.8em;"
+            " margin-top: 8px; padding-top: 6px;"
+            " border-top: 1px solid var(--jp-border-color2, #e0e0e0); }"
             "</style>"
         )
         return self._css_cache
@@ -359,7 +415,7 @@ class StreamingDisplay:
     # injected HTML in widget output is not an escalation of privilege.
     def _md_to_html(self, text: str) -> str:
         """Convert markdown text to HTML."""
-        return markdown.markdown(text, extensions=["fenced_code", "tables"])
+        return markdown.markdown(text, extensions=["fenced_code", "tables", "nl2br"])
 
     # ------------------------------------------------------------------
     # Fallback: plain print for environments where nothing else works
@@ -367,14 +423,17 @@ class StreamingDisplay:
 
     def _print_fallback_latest(self) -> None:
         """Print only the most recently added item (avoids duplicating earlier output)."""
-        if self._model and not self._text_blocks and not self._tool_calls:
+        if self._model and not self._items:
             print(f"Model: {self._model}", flush=True)
-        if self._text_blocks:
-            print(self._text_blocks[-1], flush=True)
-        if self._tool_calls:
-            entry = self._tool_calls[-1]
-            prefix = "  \u2713" if entry.completed else "  ..."
-            print(f"{prefix} {entry.display_text}", flush=True)
+        if self._items:
+            kind, item = self._items[-1]
+            if kind == "text":
+                print(item, flush=True)
+            elif kind == "tool":
+                prefix = "  \u2713" if item.completed else "  Tool:"
+                print(f"{prefix} {item.display_text}", flush=True)
+            elif kind == "thinking":
+                print(f"  [thinking] {item[:80]}{'...' if len(item) > 80 else ''}", flush=True)
         if self._interrupted:
             print("Query interrupted by user", flush=True)
         if self._error:
