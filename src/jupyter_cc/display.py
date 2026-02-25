@@ -344,11 +344,11 @@ class StreamingDisplay:
         if not has_content:
             parts.append('<div class="jcc-waiting">Thinking...</div>')
 
-        parts.append("</div>")  # close .jcc-body
-
-        # Spinner at bottom while still running
+        # Spinner at bottom of body while still running
         if not self._stopped:
             parts.append('<div class="jcc-spinner"><div class="jcc-spinner-dot"></div><span>Running\u2026</span></div>')
+
+        parts.append("</div>")  # close .jcc-body
 
         # Result metadata footer
         if self._result_meta:
@@ -422,8 +422,7 @@ class StreamingDisplay:
             " border-top: 2px solid var(--jp-brand-color1, #4a90d9);"
             " border-radius: 50%; animation: jcc-spin .8s linear infinite; }"
             ".jcc-footer { color: var(--jp-ui-font-color3, #999); font-size: 0.8em;"
-            " margin-top: 6px; padding-top: 6px;"
-            " border-top: 1px solid var(--jp-border-color2, #e0e0e0); }"
+            " margin-top: 6px; }"
             "</style>"
         )
         return self._css_cache

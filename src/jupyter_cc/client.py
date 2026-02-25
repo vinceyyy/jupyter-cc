@@ -147,11 +147,17 @@ class ClaudeClientManager:
                     async for message in client.receive_response():
                         if message is None:
                             continue  # Skipped by patched parser (unknown type)
+
+                        # Log every message type for debugging (visible with %cc --verbose
+                        # or logging.getLogger("jupyter_cc").setLevel(logging.DEBUG))
+                        logger.debug("SDK message: %s", type(message).__name__)
+
                         if isinstance(message, AssistantMessage):
                             if hasattr(message, "model") and not has_printed_model:
                                 display.set_model(message.model)
                                 has_printed_model = True
                             for block in message.content:
+                                logger.debug("  block: %s", type(block).__name__)
                                 if isinstance(block, TextBlock) and block.text.strip():
                                     display.add_text(block.text)
                                     assistant_messages.append(block.text)
@@ -160,6 +166,8 @@ class ClaudeClientManager:
                                     tool_calls.append(f"{block.name}: {block.input}")
                                 elif isinstance(block, ThinkingBlock) and block.thinking.strip():
                                     display.add_thinking(block.thinking)
+                                elif isinstance(block, ToolResultBlock):
+                                    logger.debug("  ToolResultBlock in assistant (tool_use_id=%s)", block.tool_use_id)
                         elif isinstance(message, UserMessage):
                             # UserMessage contains tool results — mark tool calls as completed
                             if isinstance(message.content, list):
@@ -177,6 +185,9 @@ class ClaudeClientManager:
                                 num_turns=message.num_turns,
                             )
                             break
+                        else:
+                            # SystemMessage, StreamEvent, or future types — log but don't render
+                            logger.debug("  unhandled message: %r", message)
 
                 if enable_interrupt:
                     # Collect messages with interrupt checking.
