@@ -69,7 +69,8 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
         pattern = tool_input.get("pattern", "")
         parts = [f'{display_name}(pattern: "{pattern}"']
         path = tool_input.get("path")
-        parts.append(f'path: "{path}"')
+        if path:
+            parts.append(f'path: "{path}"')
         if "glob" in tool_input:
             parts.append(f'glob: "{tool_input["glob"]}"')
         if "type" in tool_input:
@@ -363,16 +364,14 @@ class StreamingDisplay:
 
     def _print_fallback_latest(self) -> None:
         """Print only the most recently added item (avoids duplicating earlier output)."""
-        if self._model and len(self._text_blocks) == 0 and len(self._tool_calls) == 0:
+        if self._model and not self._text_blocks and not self._tool_calls:
             print(f"Model: {self._model}", flush=True)
         if self._text_blocks:
             print(self._text_blocks[-1], flush=True)
         if self._tool_calls:
             entry = self._tool_calls[-1]
-            if not entry.completed:
-                print(f"  ... {entry.display_text}", flush=True)
-            else:
-                print(f"  \u2713 {entry.display_text}", flush=True)
+            prefix = "  \u2713" if entry.completed else "  ..."
+            print(f"{prefix} {entry.display_text}", flush=True)
         if self._interrupted:
             print("Query interrupted by user", flush=True)
         if self._error:

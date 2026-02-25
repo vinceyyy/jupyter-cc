@@ -6,6 +6,11 @@ from jupyter_cc.constants import EXECUTE_PYTHON_TOOL_NAME
 from jupyter_cc.display import StreamingDisplay, format_tool_call
 
 
+def _make_fake_widget() -> object:
+    """Create a minimal stand-in for ipywidgets.HTML (no real kernel needed)."""
+    return type("FakeWidget", (), {"value": "", "layout": type("L", (), {"display": ""})()})()
+
+
 def test_format_tool_call_read() -> None:
     """Read tool shows file path."""
     result = format_tool_call("Read", {"file_path": "/home/user/data.csv"})
@@ -129,7 +134,7 @@ def test_render_jupyter_html_interrupt() -> None:
     display = StreamingDisplay(jupyter=True)
     display.show_interrupt()
     html = display._render_jupyter_html()
-    assert "interrupted" in html.lower() or "Interrupted" in html
+    assert "interrupted" in html.lower()
 
 
 def test_throttled_refresh_skips_rapid_updates() -> None:
@@ -137,7 +142,7 @@ def test_throttled_refresh_skips_rapid_updates() -> None:
     import time
 
     display = StreamingDisplay(jupyter=True)
-    display._widget = type("FakeWidget", (), {"value": "", "layout": type("L", (), {"display": ""})()})()
+    display._widget = _make_fake_widget()
     display._last_refresh = 0.0
 
     display.add_text("first")
@@ -154,7 +159,7 @@ def test_throttled_refresh_skips_rapid_updates() -> None:
 def test_streaming_display_receives_updates_during_collection() -> None:
     """Verify display methods are called, simulating the inline processing flow."""
     display = StreamingDisplay(jupyter=True)
-    display._widget = type("FakeWidget", (), {"value": "", "layout": type("L", (), {"display": ""})()})()
+    display._widget = _make_fake_widget()
     display._last_refresh = 0.0
 
     # Simulate what the fixed client.py does: call display inline
