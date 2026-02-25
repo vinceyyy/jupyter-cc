@@ -58,7 +58,7 @@ def test_format_tool_call_unknown() -> None:
 def test_streaming_display_lifecycle() -> None:
     """start/stop without errors using fallback mode."""
     display = StreamingDisplay()
-    # Force fallback mode by starting without Rich Live
+    # Force fallback mode (no ipywidgets)
     display._fallback = True
     display.start()
     display.set_model("sonnet")

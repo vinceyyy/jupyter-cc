@@ -156,7 +156,8 @@ class StreamingDisplay:
         # Jupyter HTML widget (created in start())
         self._widget: Any | None = None  # ipywidgets.HTML
 
-        # Throttling state
+        # Throttling state (guarded by _refresh_lock for cross-thread safety)
+        self._refresh_lock = threading.Lock()
         self._last_refresh = 0.0
         self._dirty = False
         self._pending_timer: threading.Timer | None = None
@@ -179,7 +180,7 @@ class StreamingDisplay:
                 self._fallback = True
             return
 
-        # Terminal mode: no Rich, just fallback
+        # Terminal mode: plain print fallback
         self._fallback = True
 
     def stop(self) -> None:
@@ -252,25 +253,27 @@ class StreamingDisplay:
         if not self._jupyter or self._widget is None:
             return
 
-        now = time.monotonic()
-        if not force and (now - self._last_refresh) < _REFRESH_INTERVAL:
-            self._dirty = True
-            if self._pending_timer is None:
-                self._pending_timer = threading.Timer(_REFRESH_INTERVAL, self._deferred_refresh)
-                self._pending_timer.daemon = True
-                self._pending_timer.start()
-            return
+        with self._refresh_lock:
+            now = time.monotonic()
+            if not force and (now - self._last_refresh) < _REFRESH_INTERVAL:
+                self._dirty = True
+                if self._pending_timer is None:
+                    self._pending_timer = threading.Timer(_REFRESH_INTERVAL, self._deferred_refresh)
+                    self._pending_timer.daemon = True
+                    self._pending_timer.start()
+                return
 
-        # Thread safety: ipywidgets >= 8.x serializes .value assignments through the
-        # kernel's Comm channel. Background-thread writes are safe for simple trait
-        # updates like HTML.value. See pyproject.toml constraint: ipywidgets>=8.1.8.
-        self._widget.value = self._render_jupyter_html()
-        self._last_refresh = now
-        self._dirty = False
+            # Thread safety: ipywidgets >= 8.x serializes .value assignments through
+            # the kernel's Comm channel. Background-thread writes are safe for simple
+            # trait updates like HTML.value. See pyproject.toml: ipywidgets>=8.1.8.
+            self._widget.value = self._render_jupyter_html()
+            self._last_refresh = now
+            self._dirty = False
 
     def _deferred_refresh(self) -> None:
         """Called by timer to flush pending dirty state."""
-        self._pending_timer = None
+        with self._refresh_lock:
+            self._pending_timer = None
         if self._dirty:
             self._refresh()
 
