@@ -149,3 +149,20 @@ def test_throttled_refresh_skips_rapid_updates() -> None:
     display._refresh()
     assert display._widget.value == first_html
     assert display._dirty is True
+
+
+def test_streaming_display_receives_updates_during_collection() -> None:
+    """Verify display methods are called, simulating the inline processing flow."""
+    display = StreamingDisplay(jupyter=True)
+    display._widget = type("FakeWidget", (), {"value": "", "layout": type("L", (), {"display": ""})()})()
+    display._last_refresh = 0.0
+
+    # Simulate what the fixed client.py does: call display inline
+    display.set_model("claude-sonnet-4-20250514")
+    display.add_text("Hello from stream")
+    display.add_tool_call("Bash", {"command": "echo hi"}, "tool-1")
+
+    html = display._render_jupyter_html()
+    assert "claude-sonnet-4-20250514" in html
+    assert "Hello from stream" in html
+    assert "Bash" in html

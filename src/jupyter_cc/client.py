@@ -143,7 +143,6 @@ class ClaudeClientManager:
                     # Collect messages with interrupt checking.
                     # Exceptions inside collect_messages are captured (not raised)
                     # to prevent anyio from wrapping them in an ExceptionGroup.
-                    messages_to_process: list[Any] = []
                     collection_error: Exception | None = None
                     collection_done = anyio.Event()
 
@@ -155,8 +154,7 @@ class ClaudeClientManager:
                                 async for message in client.receive_response():
                                     if message is None:
                                         continue  # Skipped by patched parser (unknown type)
-                                    messages_to_process.append(message)
-                                    # Process for display IMMEDIATELY
+                                    # Process for display inline as messages arrive
                                     if isinstance(message, AssistantMessage):
                                         if hasattr(message, "model") and not has_printed_model:
                                             display.set_model(message.model)
