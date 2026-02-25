@@ -120,10 +120,9 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
 class _ToolCallEntry:
     """Internal state for a single tool call being displayed."""
 
-    def __init__(self, display_text: str, tool_id: str, tool_name: str) -> None:
+    def __init__(self, display_text: str, tool_id: str) -> None:
         self.display_text = display_text
         self.tool_id = tool_id
-        self.tool_name = tool_name
         self.completed = False
 
 
@@ -211,7 +210,7 @@ class StreamingDisplay:
     def add_tool_call(self, tool_name: str, tool_input: dict[str, Any], tool_id: str) -> None:
         """Add an active tool call (shown with "Tool:" prefix)."""
         display_text = format_tool_call(tool_name, tool_input)
-        entry = _ToolCallEntry(display_text, tool_id, tool_name)
+        entry = _ToolCallEntry(display_text, tool_id)
         self._items.append(("tool", entry))
         if self._verbose:
             entry.display_text += f"\n  Arguments: {tool_input}"
@@ -325,11 +324,7 @@ class StreamingDisplay:
                 parts.append(f'<div class="jcc-content">{self._md_to_html(item)}</div>')
             elif kind == "tool":
                 escaped_text = html_module.escape(item.display_text)
-                if item.completed and item.tool_name == EXECUTE_PYTHON_TOOL_NAME:
-                    # CreateNotebookCell "completes" instantly (just queues the cell),
-                    # but the user still needs to run it — show as queued, not done.
-                    parts.append(f'<div class="jcc-tool queued">\u25cb {escaped_text}</div>')
-                elif item.completed:
+                if item.completed:
                     parts.append(f'<div class="jcc-tool done">\u2713 {escaped_text}</div>')
                 else:
                     parts.append(f'<div class="jcc-tool">Tool: {escaped_text}</div>')
@@ -406,7 +401,6 @@ class StreamingDisplay:
             " font-size: 0.9em; padding: 1px 0;"
             " font-family: var(--jp-code-font-family, monospace); }"
             ".jcc-tool.done { opacity: 0.6; }"
-            ".jcc-tool.queued { opacity: 0.8; }"
             ".jcc-thinking { color: var(--jp-ui-font-color3, #999);"
             " font-style: italic; font-size: 0.85em; padding: 2px 0;"
             " white-space: pre-wrap; }"
@@ -453,12 +447,7 @@ class StreamingDisplay:
             if kind == "text":
                 print(item, flush=True)
             elif kind == "tool":
-                if item.completed and item.tool_name == EXECUTE_PYTHON_TOOL_NAME:
-                    prefix = "  \u25cb"  # queued
-                elif item.completed:
-                    prefix = "  \u2713"
-                else:
-                    prefix = "  Tool:"
+                prefix = "  \u2713" if item.completed else "  Tool:"
                 print(f"{prefix} {item.display_text}", flush=True)
             elif kind == "thinking":
                 print(f"  [thinking] {item[:80]}{'...' if len(item) > 80 else ''}", flush=True)

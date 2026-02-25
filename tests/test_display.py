@@ -268,30 +268,6 @@ def test_tool_prefix_not_hourglass() -> None:
     assert "\u23f3" not in html  # No hourglass
 
 
-def test_create_notebook_cell_shows_queued() -> None:
-    """CreateNotebookCell shows ○ (queued) instead of ✓ (done) when completed."""
-    display = StreamingDisplay(jupyter=True)
-    display.add_tool_call(EXECUTE_PYTHON_TOOL_NAME, {"code": "x=1", "description": "Set x"}, "t1")
-    display.complete_tool_call("t1")
-    html = display._render_jupyter_html()
-    # Should show open circle (queued), not checkmark (done)
-    assert "\u25cb" in html
-    assert "jcc-tool queued" in html
-    assert "\u2713" not in html
-
-
-def test_regular_tool_shows_checkmark_not_queued() -> None:
-    """Regular tools like Read still show ✓ when completed."""
-    display = StreamingDisplay(jupyter=True)
-    display.add_tool_call("Read", {"file_path": "/test"}, "t1")
-    display.complete_tool_call("t1")
-    html = display._render_jupyter_html()
-    assert "\u2713" in html
-    assert "jcc-tool done" in html
-    # The tool div itself should not have "queued" class
-    assert 'class="jcc-tool queued"' not in html
-
-
 # ------------------------------------------------------------------
 # nl2br / line break tests
 # ------------------------------------------------------------------
