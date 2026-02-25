@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html as html_module
 import logging
+import threading
 import time
 from typing import Any
 
@@ -28,9 +29,9 @@ logger = logging.getLogger(__name__)
 # Runs entirely in the browser -- no Python-side refresh needed.
 _CSS_SPINNER_HTML = (
     '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
-    'font-family:sans-serif;font-size:13px;color:#888">'
-    '<div style="width:14px;height:14px;border:2px solid #e0e0e0;'
-    "border-top:2px solid #4a90d9;border-radius:50%;"
+    'font-family:sans-serif;font-size:13px;color:var(--jp-ui-font-color2, #888)">'
+    '<div style="width:14px;height:14px;border:2px solid var(--jp-border-color1, #e0e0e0);'
+    "border-top:2px solid var(--jp-brand-color1, #4a90d9);border-radius:50%;"
     'animation:jcc-spin .8s linear infinite"></div>'
     "<span>Running&hellip;</span></div>"
     "<style>@keyframes jcc-spin{0%{transform:rotate(0deg)}"
@@ -157,6 +158,7 @@ class StreamingDisplay:
         # Throttling state
         self._last_refresh = 0.0
         self._dirty = False
+        self._pending_timer: threading.Timer | None = None
 
         # CSS cache
         self._css_cache: str | None = None
@@ -181,6 +183,9 @@ class StreamingDisplay:
 
     def stop(self) -> None:
         """Stop the live display, render final output."""
+        if self._pending_timer is not None:
+            self._pending_timer.cancel()
+            self._pending_timer = None
         if self._jupyter and self._widget is not None:
             self._refresh(force=True)
             return
@@ -249,11 +254,24 @@ class StreamingDisplay:
         now = time.monotonic()
         if not force and (now - self._last_refresh) < _REFRESH_INTERVAL:
             self._dirty = True
+            if self._pending_timer is None:
+                self._pending_timer = threading.Timer(_REFRESH_INTERVAL, self._deferred_refresh)
+                self._pending_timer.daemon = True
+                self._pending_timer.start()
             return
 
+        # Thread safety: ipywidgets >= 8.x serializes .value assignments through the
+        # kernel's Comm channel. Background-thread writes are safe for simple trait
+        # updates like HTML.value. See pyproject.toml constraint: ipywidgets>=8.1.8.
         self._widget.value = self._render_jupyter_html()
         self._last_refresh = now
         self._dirty = False
+
+    def _deferred_refresh(self) -> None:
+        """Called by timer to flush pending dirty state."""
+        self._pending_timer = None
+        if self._dirty:
+            self._refresh()
 
     def _render_jupyter_html(self) -> str:
         """Build full HTML string from current state."""
@@ -332,6 +350,9 @@ class StreamingDisplay:
         )
         return self._css_cache
 
+    # Security note: markdown output is not sanitized for HTML injection.
+    # In Jupyter, the kernel already has full code execution access, so
+    # injected HTML in widget output is not an escalation of privilege.
     def _md_to_html(self, text: str) -> str:
         """Convert markdown text to HTML."""
         return markdown.markdown(text, extensions=["fenced_code", "tables"])
