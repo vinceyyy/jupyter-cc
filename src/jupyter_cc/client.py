@@ -136,6 +136,7 @@ class ClaudeClientManager:
 
                 # Process responses
                 has_printed_model = not is_new_conversation
+                assert display is not None  # noqa: S101  # Guaranteed by owns_display logic above
 
                 # If interrupt support is enabled, we need to handle messages differently
                 if enable_interrupt:
@@ -149,13 +150,29 @@ class ClaudeClientManager:
                     async with anyio.create_task_group() as tg:
 
                         async def collect_messages() -> None:
-                            nonlocal collection_error
+                            nonlocal collection_error, has_printed_model
                             try:
                                 async for message in client.receive_response():
                                     if message is None:
                                         continue  # Skipped by patched parser (unknown type)
                                     messages_to_process.append(message)
-                                    if isinstance(message, ResultMessage):
+                                    # Process for display IMMEDIATELY
+                                    if isinstance(message, AssistantMessage):
+                                        if hasattr(message, "model") and not has_printed_model:
+                                            display.set_model(message.model)
+                                            has_printed_model = True
+                                        for block in message.content:
+                                            if isinstance(block, TextBlock) and block.text.strip():
+                                                display.add_text(block.text)
+                                                assistant_messages.append(block.text)
+                                            elif isinstance(block, ToolUseBlock):
+                                                display.add_tool_call(block.name, block.input, block.id)
+                                                tool_calls.append(f"{block.name}: {block.input}")
+                                    elif isinstance(message, ResultMessage):
+                                        # Extract and store session ID from result
+                                        if message.session_id and message.session_id != self._session_id:
+                                            self._session_id = message.session_id
+                                            display.set_session_id(self._session_id)
                                         break
                             except Exception as exc:
                                 # Catch SDK/connection errors but let CancelledError
@@ -183,25 +200,6 @@ class ClaudeClientManager:
                     # Re-raise any error that occurred during message collection
                     if collection_error is not None:
                         raise collection_error
-
-                    # Process collected messages
-                    for message in messages_to_process:
-                        if isinstance(message, AssistantMessage):
-                            if hasattr(message, "model") and not has_printed_model:
-                                display.set_model(message.model)
-                                has_printed_model = True
-                            for block in message.content:
-                                if isinstance(block, TextBlock) and block.text.strip():
-                                    display.add_text(block.text)
-                                    assistant_messages.append(block.text)
-                                elif isinstance(block, ToolUseBlock):
-                                    display.add_tool_call(block.name, block.input, block.id)
-                                    tool_calls.append(f"{block.name}: {block.input}")
-                        elif isinstance(message, ResultMessage):
-                            # Extract and store session ID from result
-                            if message.session_id and message.session_id != self._session_id:
-                                self._session_id = message.session_id
-                                display.set_session_id(self._session_id)
                 else:
                     # Simple mode without interrupt support
                     async for message in client.receive_response():
