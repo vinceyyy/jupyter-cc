@@ -53,25 +53,13 @@ You can see the current session state. You can create new code cells using the {
 Never call {EXECUTE_PYTHON_TOOL_NAME} if you can answer the user's question directly with text.
 {preference}
 """
-    system_prompt_image_capture = """IMPORTANT: When generating code that displays images (matplotlib, seaborn, PIL, etc.), you MUST wrap that code with IPython's capture_output() and the variable `_claude_captured_output` to capture the images. Then, you must re-display the captured output. You can only have one _claude_captured_output context. Use this pattern:
+    system_prompt_image_capture = """Images from display() calls (matplotlib, seaborn, PIL, etc.) are automatically captured. You do not need any special wrapper — just write normal plotting code and the images will be available to you on the next turn.
 
-```
-from IPython.utils.capture import capture_output
+You also have two kernel inspection tools available:
+- list_variables: Lists all user-defined variables with types and values
+- inspect_variable: Gets detailed info about a specific variable (full repr, attributes, shape/columns for DataFrames, etc.)
 
-# Your plotting/image code here
-import matplotlib.pyplot as plt
-
-with capture_output() as _claude_captured_output:
-    plt.plot([1, 2, 3, 4])
-    plt.show()
-    plt.plot([3, 4, 5, 6])
-    plt.show()
-
-for output in _claude_captured_output.outputs:
-    display(output)
-```
-
-This allows the system to capture any images for you for further processing."""
+Use these tools when you need to understand the current kernel state without creating code cells."""
 
     system_prompt_tool_usage = f"""For any questions you can answer on your own, DO NOT use {EXECUTE_PYTHON_TOOL_NAME}.
 Don't forget that you have other built-in tools like Read. Try responding using your built-in tools first without using {EXECUTE_PYTHON_TOOL_NAME}. Your response does not need to invoke {EXECUTE_PYTHON_TOOL_NAME}.
@@ -90,7 +78,7 @@ Examples:
 
 <plot-example>
     <request>Plot the data in `my_df` and save the images to files</request>
-    The generated code should use `with capture_output() as _claude_captured_output` to capture the displayed image.
+    The generated code should create the plot normally with plt.show(). Images are captured automatically.
 </plot-example>
 
 IMPORTANT: Do not invoke {EXECUTE_PYTHON_TOOL_NAME} in parallel.

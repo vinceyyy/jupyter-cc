@@ -143,37 +143,51 @@ df["revenue"].sum()
 
 ## Image Capture
 
-**Source**: `src/jupyter_cc/capture.py` -- `extract_images_from_captured()`
+**Source**: `src/jupyter_cc/capture.py` -- `ImageCollector`
 
-When code uses IPython's `capture_output()` pattern with the special variable `_claude_captured_output`, images are extracted and sent to Claude as base64-encoded content blocks alongside the text prompt.
+Images from `display()` calls are automatically captured. When any cell produces an image (matplotlib, seaborn, PIL, plotly, etc.), jupyter-cc intercepts it transparently and sends it to Claude on the next `%cc` call.
 
 **How it works:**
 
-1. Claude generates code that wraps plotting in `capture_output()`:
-   ```python
-   from IPython.utils.capture import capture_output
+1. On extension load, `ImageCollector` wraps `shell.display_pub.publish` -- the central dispatch for all `display()` calls in IPython.
+1. Every time an image is displayed (via `plt.show()`, `display()`, or as a cell's return value), the collector stores the image data while passing it through to the notebook normally.
+1. When you call `%cc`, the collector is drained: all images since the last `%cc` call are included as base64-encoded content blocks alongside the text prompt.
+1. The buffer is cleared after draining.
 
-   with capture_output() as _claude_captured_output:
-       plt.plot([1, 2, 3])
-       plt.show()
+**No special wrapper needed.** The old `capture_output() as _claude_captured_output` pattern is no longer required. Just write normal plotting code.
 
-   for output in _claude_captured_output.outputs:
-       display(output)
-   ```
-1. When the user runs this cell and then calls `%cc`, jupyter-cc detects `_claude_captured_output` in the namespace.
-1. `extract_images_from_captured()` extracts image data from each output object.
-1. Images are sent as structured content blocks (not embedded in text):
-   ```python
-   [
-       {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}},
-       {"type": "text", "text": "Your client's request is <request>...</request>\n..."},
-   ]
-   ```
-1. The `_claude_captured_output` variable is deleted from the namespace after extraction.
+**Limits:** The collector keeps the last 20 images. If a cell produces more than 20 images (e.g., a plotting loop), only the 20 most recent survive.
 
 **Supported formats:** `image/png`, `image/jpeg`, `image/jpg`, `image/svg+xml`
 
-Claude can see and reference these images in its response -- for example, suggesting changes to a plot's styling based on what it actually looks like.
+## Kernel State Tools
+
+**Source**: `src/jupyter_cc/tools.py`
+
+Claude has two MCP tools for inspecting the kernel state on-demand:
+
+### `list_variables`
+
+Lists all user-defined variables with their types and truncated values (100 chars). Same filtering rules as the variable diff in the prompt: excludes `_`-prefixed names and IPython builtins (`In`, `Out`, `exit`, `quit`).
+
+Example output:
+
+```
+3 variable(s):
+  df: DataFrame = ...
+  model: LinearRegression = LinearRegression()
+  threshold: float = 0.85
+```
+
+### `inspect_variable`
+
+Returns detailed information about a single variable:
+
+- Full `repr()` (up to 10,000 chars)
+- Public attributes (`dir()` filtered)
+- Type-specific extras: shape/columns/dtypes for DataFrames, length/keys for dicts, length for lists
+
+These tools complement the automatic variable diff. The diff shows what changed since the last `%cc` call; the tools let Claude query the full current state when needed.
 
 ## System Prompt
 
@@ -197,7 +211,7 @@ The system prompt is appended to the Claude Code preset (`"claude_code"`) and va
 
 **Common instructions (both environments):**
 
-- Use `capture_output() as _claude_captured_output` for any image-generating code (matplotlib, seaborn, PIL, etc.)
+- Images from `display()` calls are automatically captured -- no special wrapper needed
 - Prefer text answers -- do not use `create_python_cell` when a direct answer suffices
 - Try built-in tools (Read, Grep, etc.) before reaching for `create_python_cell`
 - Always include a return value as the last line (not `print()`)
@@ -221,6 +235,8 @@ Claude has access to these tools during a `%cc` session:
 | `WebSearch`                        | Search the web                      |
 | `WebFetch`                         | Fetch and read web pages            |
 | `mcp__jupyter__create_python_cell` | Create a code cell in the notebook  |
+| `mcp__jupyter__list_variables`     | List all kernel variables           |
+| `mcp__jupyter__inspect_variable`   | Inspect a single variable in detail |
 
 The `create_python_cell` tool accepts two parameters:
 
@@ -320,12 +336,12 @@ id SERIAL PRIMARY KEY,
 
 Understanding what is excluded helps avoid confusion:
 
-| Excluded                                        | Why                                                                                                                                                                                 |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `print()` output                                | IPython only captures return values in `Out[N]`, not stdout. Use `df.head()` instead of `print(df.head())`.                                                                         |
-| Variables starting with `_`                     | Filtered out to avoid noise from IPython temporaries (`_`, `_i`, `__`, `_oh`, etc.).                                                                                                |
-| IPython built-ins (`In`, `Out`, `exit`, `quit`) | Always filtered from variable tracking.                                                                                                                                             |
-| Cell execution errors                           | Errors do not produce `Out[N]` values. Claude sees the cell input but not the traceback. (Exception: the `_claude_continue_impl` flow does report errors for cells Claude created.) |
-| Kernel metadata                                 | Python version, installed packages, kernel name -- none of this is sent. Claude can discover it via tool calls if needed.                                                           |
-| Other notebooks or sessions                     | Each notebook has its own `ClaudeClientManager` and `VariableTracker`. There is no cross-notebook state.                                                                            |
-| Cells from before `%load_ext`                   | History tracking starts when the extension loads. Earlier cells are only available if `--cells-to-load` pulls them from IPython's history database.                                 |
+| Excluded                                        | Why                                                                                                                                                                                                                                                       |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `print()` output                                | IPython only captures return values in `Out[N]`, not stdout. Use `df.head()` instead of `print(df.head())`.                                                                                                                                               |
+| Variables starting with `_`                     | Filtered out to avoid noise from IPython temporaries (`_`, `_i`, `__`, `_oh`, etc.).                                                                                                                                                                      |
+| IPython built-ins (`In`, `Out`, `exit`, `quit`) | Always filtered from variable tracking.                                                                                                                                                                                                                   |
+| Cell execution errors                           | Errors do not produce `Out[N]` values. Claude sees the cell input but not the traceback. (Exception: the `_claude_continue_impl` flow does report errors for cells Claude created.)                                                                       |
+| Kernel metadata                                 | Python version, installed packages, kernel name -- not sent automatically. Claude can query variable state on-demand via `list_variables` and `inspect_variable` tools, but kernel-level metadata requires a tool call (e.g., `import sys; sys.version`). |
+| Other notebooks or sessions                     | Each notebook has its own `ClaudeClientManager` and `VariableTracker`. There is no cross-notebook state.                                                                                                                                                  |
+| Cells from before `%load_ext`                   | History tracking starts when the extension loads. Earlier cells are only available if `--cells-to-load` pulls them from IPython's history database.                                                                                                       |

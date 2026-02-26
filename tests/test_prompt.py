@@ -33,6 +33,19 @@ def test_system_prompt_description_instruction() -> None:
     assert "description" in prompt.lower()
 
 
+def test_system_prompt_no_capture_output_instructions() -> None:
+    """System prompt should NOT contain capture_output instructions."""
+    prompt = get_system_prompt(is_ipython=False, max_cells=3)
+    assert "capture_output" not in prompt
+    assert "_claude_captured_output" not in prompt
+
+
+def test_system_prompt_mentions_automatic_image_capture() -> None:
+    """System prompt should mention that images are captured automatically."""
+    prompt = get_system_prompt(is_ipython=False, max_cells=3)
+    assert "automatically" in prompt.lower() or "automatic" in prompt.lower()
+
+
 def test_prepare_imported_files_empty() -> None:
     """Empty list returns empty string."""
     result = prepare_imported_files_content([])
