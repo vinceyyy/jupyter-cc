@@ -18,6 +18,7 @@ src/jupyter_cc/
 ├── __init__.py      # Extension entry point: load_ipython_extension(), permissions setup
 ├── magics.py        # Core: %cc, %cc_new, %cc_cur magic commands, MCP server setup
 ├── client.py        # SDK client lifecycle, streaming, interrupt handling, message display
+├── display.py       # Streaming HTML display: ipywidgets widget, throttled refresh, markdown
 ├── config.py        # CLI options (--model, --add-dir, --import, --mcp-config, etc.)
 ├── prompt.py        # System prompt construction per environment (Jupyter vs IPython)
 ├── integration.py   # Cell creation, queue management, env detection

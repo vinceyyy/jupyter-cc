@@ -1,6 +1,6 @@
 [project]
 name = "jupyter-cc"
-version = "0.1.0"
+version = "0.2.0"
 description = "Jupyter magic for Claude Code — %cc brings agentic AI into your notebook cells"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -10,7 +10,7 @@ dependencies = [
     "claude-agent-sdk>=0.1.39",
     "ipython>=9.10.0",
     "ipywidgets>=8.1.8",
-    "rich>=13.0.0",
+    "markdown>=3.7",
 ]
 
 [project.urls]

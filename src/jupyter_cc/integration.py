@@ -96,25 +96,29 @@ def process_cell_queue(parent: ClaudeCodeMagics) -> None:
         # Only show "Next cell ready" if there are more cells after this one
         remaining = sum(1 for cell in cell_queue[next_cell_index:] if not cell.get("executed", False))
         if remaining > 0:
+            from .display import display_status  # lazy import to avoid circular dependency
+
             next_cell_marker_id = cell_queue[next_cell_index]["marker_id"]
-            print(
+            display_status(
                 f"📋 Next cell ready (Claude cell [{next_cell_marker_id}])",
-                flush=True,
+                kind="info",
             )
     elif len(cell_queue) > 1:
         # All cells have been executed
         if all(cell["executed"] for cell in cell_queue):
+            from .display import display_status  # lazy import to avoid circular dependency
+
             # Check if any had exceptions
             had_exceptions = any(cell.get("had_exception", False) for cell in cell_queue)
             if had_exceptions:
-                print(
+                display_status(
                     "⚠️ All of Claude's generated cells processed (some with errors)",
-                    flush=True,
+                    kind="warning",
                 )
             else:
-                print(
+                display_status(
                     "✅ All of Claude's generated cells have been processed successfully",
-                    flush=True,
+                    kind="success",
                 )
 
 

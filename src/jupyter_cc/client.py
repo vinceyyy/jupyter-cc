@@ -17,7 +17,10 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ResultMessage,
     TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from .display import StreamingDisplay
@@ -136,13 +139,60 @@ class ClaudeClientManager:
 
                 # Process responses
                 has_printed_model = not is_new_conversation
+                assert display is not None  # noqa: S101  # Guaranteed by owns_display logic above
 
-                # If interrupt support is enabled, we need to handle messages differently
+                async def process_messages() -> None:
+                    """Iterate over streamed messages and update display + result lists."""
+                    nonlocal has_printed_model
+                    async for message in client.receive_response():
+                        if message is None:
+                            continue  # Skipped by patched parser (unknown type)
+
+                        # Log every message type for debugging (visible with %cc --verbose
+                        # or logging.getLogger("jupyter_cc").setLevel(logging.DEBUG))
+                        logger.debug("SDK message: %s", type(message).__name__)
+
+                        if isinstance(message, AssistantMessage):
+                            if hasattr(message, "model") and not has_printed_model:
+                                display.set_model(message.model)
+                                has_printed_model = True
+                            for block in message.content:
+                                logger.debug("  block: %s", type(block).__name__)
+                                if isinstance(block, TextBlock) and block.text.strip():
+                                    display.add_text(block.text)
+                                    assistant_messages.append(block.text)
+                                elif isinstance(block, ToolUseBlock):
+                                    display.add_tool_call(block.name, block.input, block.id)
+                                    tool_calls.append(f"{block.name}: {block.input}")
+                                elif isinstance(block, ThinkingBlock) and block.thinking.strip():
+                                    display.add_thinking(block.thinking)
+                                elif isinstance(block, ToolResultBlock):
+                                    logger.debug("  ToolResultBlock in assistant (tool_use_id=%s)", block.tool_use_id)
+                        elif isinstance(message, UserMessage):
+                            # UserMessage contains tool results — mark tool calls as completed
+                            if isinstance(message.content, list):
+                                for block in message.content:
+                                    if isinstance(block, ToolResultBlock):
+                                        display.complete_tool_call(block.tool_use_id)
+                        elif isinstance(message, ResultMessage):
+                            if message.session_id and message.session_id != self._session_id:
+                                self._session_id = message.session_id
+                                display.set_session_id(self._session_id)
+                            display.set_result(
+                                duration_ms=message.duration_ms,
+                                total_cost_usd=message.total_cost_usd,
+                                usage=message.usage,
+                                num_turns=message.num_turns,
+                            )
+                            break
+                        else:
+                            # SystemMessage, StreamEvent, or future types — log but don't render
+                            logger.debug("  unhandled message: %r", message)
+
                 if enable_interrupt:
                     # Collect messages with interrupt checking.
                     # Exceptions inside collect_messages are captured (not raised)
                     # to prevent anyio from wrapping them in an ExceptionGroup.
-                    messages_to_process: list[Any] = []
                     collection_error: Exception | None = None
                     collection_done = anyio.Event()
 
@@ -151,12 +201,7 @@ class ClaudeClientManager:
                         async def collect_messages() -> None:
                             nonlocal collection_error
                             try:
-                                async for message in client.receive_response():
-                                    if message is None:
-                                        continue  # Skipped by patched parser (unknown type)
-                                    messages_to_process.append(message)
-                                    if isinstance(message, ResultMessage):
-                                        break
+                                await process_messages()
                             except Exception as exc:
                                 # Catch SDK/connection errors but let CancelledError
                                 # propagate — that's how anyio signals scope cancellation.
@@ -183,47 +228,8 @@ class ClaudeClientManager:
                     # Re-raise any error that occurred during message collection
                     if collection_error is not None:
                         raise collection_error
-
-                    # Process collected messages
-                    for message in messages_to_process:
-                        if isinstance(message, AssistantMessage):
-                            if hasattr(message, "model") and not has_printed_model:
-                                display.set_model(message.model)
-                                has_printed_model = True
-                            for block in message.content:
-                                if isinstance(block, TextBlock) and block.text.strip():
-                                    display.add_text(block.text)
-                                    assistant_messages.append(block.text)
-                                elif isinstance(block, ToolUseBlock):
-                                    display.add_tool_call(block.name, block.input, block.id)
-                                    tool_calls.append(f"{block.name}: {block.input}")
-                        elif isinstance(message, ResultMessage):
-                            # Extract and store session ID from result
-                            if message.session_id and message.session_id != self._session_id:
-                                self._session_id = message.session_id
-                                display.set_session_id(self._session_id)
                 else:
-                    # Simple mode without interrupt support
-                    async for message in client.receive_response():
-                        if message is None:
-                            continue  # Skipped by patched parser (unknown type)
-                        if isinstance(message, AssistantMessage):
-                            if hasattr(message, "model") and not has_printed_model:
-                                display.set_model(message.model)
-                                has_printed_model = True
-                            for block in message.content:
-                                if isinstance(block, TextBlock) and block.text.strip():
-                                    display.add_text(block.text)
-                                    assistant_messages.append(block.text)
-                                elif isinstance(block, ToolUseBlock):
-                                    display.add_tool_call(block.name, block.input, block.id)
-                                    tool_calls.append(f"{block.name}: {block.input}")
-                        elif isinstance(message, ResultMessage):
-                            # Extract and store session ID from result
-                            if message.session_id and message.session_id != self._session_id:
-                                self._session_id = message.session_id
-                                display.set_session_id(self._session_id)
-                            break
+                    await process_messages()
 
         except Exception as e:
             # Unwrap ExceptionGroup to get the actual error(s)

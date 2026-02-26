@@ -10,10 +10,11 @@ import json
 from pathlib import Path
 
 from .constants import HELP_TEXT
+from .display import display_status
 from .magics import ClaudeCodeMagics
 from .watcher import CellWatcher
 
-__version__ = "1.0.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ClaudeCodeMagics",
@@ -32,7 +33,7 @@ def _ensure_claude_settings() -> bool:
     if not settings_file.exists():
         settings_file.parent.mkdir(exist_ok=True)
         settings_file.write_text(json.dumps(DEFAULT_PERMISSIONS, indent=2))
-        print(f"Created {settings_file.relative_to(cwd)}")
+        display_status(f"✅ Created {settings_file.relative_to(cwd)}", kind="success")
         return True
     return False
 
@@ -47,18 +48,17 @@ def load_ipython_extension(ipython: object) -> None:
     created = _ensure_claude_settings()
 
     # Security warning
-    print("")
-    print("\033[1;31m" + "=" * 80 + "\033[0m")
-    print("\033[1;31mWARNING: Claude has permissions for Bash, Read, Write, Edit, WebSearch, WebFetch\033[0m")
-    print("")
-    print("  Claude can execute shell commands, read/write/edit files, and access the web.")
-    print("  Only use in trusted environments.")
-    print("")
+    warning_lines = [
+        "WARNING: Claude has permissions for Bash, Read, Write, Edit, WebSearch, WebFetch",
+        "",
+        "Claude can execute shell commands, read/write/edit files, and access the web.",
+        "Only use in trusted environments.",
+        "",
+    ]
     if created:
-        print("  Created .claude/settings.local.json with default permissions.")
-    print("  Consider removing .claude/settings.local.json when done.")
-    print("\033[1;31m" + "=" * 80 + "\033[0m")
-    print("")
+        warning_lines.append("Created .claude/settings.local.json with default permissions.")
+    warning_lines.append("Consider removing .claude/settings.local.json when done.")
+    display_status("\n".join(warning_lines), kind="warning")
 
     cell_watcher = CellWatcher(ipython)
     magics = ClaudeCodeMagics(ipython, cell_watcher)
@@ -66,4 +66,4 @@ def load_ipython_extension(ipython: object) -> None:
     ipython.events.register("pre_run_cell", cell_watcher.pre_run_cell)
     ipython.events.register("post_run_cell", cell_watcher.post_run_cell)
 
-    print(HELP_TEXT)
+    display_status(HELP_TEXT, kind="info")
