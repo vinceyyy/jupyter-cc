@@ -3,6 +3,16 @@ import importlib.util
 EXECUTE_PYTHON_TOOL_NAME = "mcp__jupyter__create_python_cell"
 PYGMENTS_AVAILABLE = importlib.util.find_spec("pygments") is not None
 
+WELCOME_TEXT = """\
+jupyter_cc ready!
+
+  %cc <prompt>       Send a prompt to Claude
+  %%cc <prompt>      Multi-line prompt
+  %cc_new            Start a new conversation
+  %cc_cur            Replace prompt cell with Claude's code
+
+  %cc --help         Show all options"""
+
 HELP_TEXT = """
 🚀 jupyter_cc loaded!
 Features:
