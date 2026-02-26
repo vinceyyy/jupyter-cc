@@ -37,6 +37,7 @@ from .capture import (
 )
 from .client import ClaudeClientManager, run_streaming_query
 from .config import ConfigManager
+from .display import display_status
 from .history import HistoryManager
 from .integration import (
     adjust_cell_queue_markers,
@@ -240,13 +241,10 @@ class ClaudeCodeMagics(Magics):
             # Expected cell was executed but failed - notify user but don't set up next cell
             remaining = sum(1 for cell in cell_queue if not cell.get("executed", False))
             if remaining > 0:
-                print(
-                    f"\n⚠️ Execution failed. {remaining} cell(s) remaining in queue.",
-                    flush=True,
-                )
-                print(
+                display_status(
+                    f"⚠️ Execution failed. {remaining} cell(s) remaining in queue.\n"
                     "Run %cc to continue with the error in context, or %cc_new to start fresh.",
-                    flush=True,
+                    kind="warning",
                 )
         elif not executed_expected and next_expected_marker:
             # User executed something else - check if it's a different queued cell
@@ -254,13 +252,10 @@ class ClaudeCodeMagics(Magics):
                 marker = cell_info.get("marker", "")
                 if marker and last_input.startswith(marker):
                     marker_id = cell_info["marker_id"]
-                    print(
-                        f"\n⚠️ Claude cell [{marker_id}] executed out of order. Expected Claude cell [{next_expected_marker_id}] to run next.",
-                        flush=True,
-                    )
-                    print(
+                    display_status(
+                        f"⚠️ Claude cell [{marker_id}] executed out of order. Expected Claude cell [{next_expected_marker_id}] to run next.\n"
                         "Run the expected cell to continue the automatic queue, or use %cc to report results.",
-                        flush=True,
+                        kind="warning",
                     )
                     break
 
@@ -357,7 +352,7 @@ Your client's request is <request>{prompt}</request>
         # Build the prompt content - either as string or structured with images
         enhanced_prompt: str | list[dict[str, Any]]
         if captured_images:
-            print(format_images_summary(captured_images), flush=True)
+            display_status(format_images_summary(captured_images), kind="info")
 
             # Build structured content with images
             content_blocks: list[dict[str, Any]] = []
@@ -457,10 +452,10 @@ Your client's request is <request>{prompt}</request>
         def interrupt_handler(signum: int, frame: FrameType | None) -> None:
             # Send interrupt signal to Claude client if one exists
             if self._client_manager is not None:
-                print("Interrupting Claude Code")
-
                 # Handle interrupt in a separate thread to avoid nesting anyio.run()
+                # and to keep the signal handler signal-safe (no IPython display / ZMQ).
                 def handle_interrupt() -> None:
+                    display_status("Interrupting Claude Code", kind="warning")
                     if self._client_manager is not None:
                         with contextlib.suppress(Exception):
                             anyio.run(self._client_manager.handle_interrupt)  # no-args async callable
@@ -520,9 +515,9 @@ Your client's request is <request>{prompt}</request>
             executed_count = sum(1 for cell in cell_queue if cell.get("executed", False))
             total_count = len(cell_queue)
 
-            print(
+            display_status(
                 f"📊 Cell execution summary: {executed_count} of {total_count} cells executed",
-                flush=True,
+                kind="info",
             )
 
         execution_results = []
@@ -581,7 +576,7 @@ Your client's request is <request>{prompt}</request>
         if not additional_prompt:
             additional_prompt = "Please continue with the task."
 
-        print("✅ Continuing Claude session with execution results...", flush=True)
+        display_status("✅ Continuing Claude session with execution results...", kind="success")
 
         # Clean up namespace
         if self.shell is not None:
@@ -716,9 +711,9 @@ Your client's request is <request>{prompt}</request>
                 if cell_queue:
                     unexecuted = sum(1 for cell in cell_queue if not cell.get("executed", False))
                     if unexecuted > 0:
-                        print(
+                        display_status(
                             f"⚠️ Clearing {unexecuted} unexecuted cells from previous request",
-                            flush=True,
+                            kind="warning",
                         )
                 del self.shell.user_ns["_claude_cell_queue"]
 

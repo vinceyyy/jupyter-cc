@@ -21,9 +21,55 @@ from typing import Any
 import markdown
 
 from .constants import EXECUTE_PYTHON_TOOL_NAME
-from .integration import is_in_jupyter_notebook
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Styled status messages (consistent HTML output in Jupyter)
+# ---------------------------------------------------------------------------
+
+# Accent colors for each message kind, using JupyterLab CSS variables.
+_STATUS_ACCENT = {
+    "success": "var(--jp-success-color1, #4caf50)",
+    "warning": "var(--jp-warn-color1, #f57c00)",
+    "error": "var(--jp-error-color1, #d32f2f)",
+    "info": "var(--jp-brand-color1, #4a90d9)",
+}
+
+
+def display_status(message: str, *, kind: str = "info") -> None:
+    """Display a styled status message.
+
+    In Jupyter notebooks, renders as an HTML div with a coloured left-border
+    accent that matches the existing ``.jcc-*`` theme.  In terminals, falls
+    back to a plain ``print()``.
+
+    Args:
+        message: The message text (may be multi-line).
+        kind: One of ``"success"``, ``"warning"``, ``"error"``, ``"info"``.
+    """
+    try:
+        from IPython import get_ipython  # type: ignore[attr-defined]
+        from IPython.display import HTML, display
+
+        ip = get_ipython()
+        if ip is not None and hasattr(ip, "kernel"):
+            accent = _STATUS_ACCENT.get(kind, _STATUS_ACCENT["info"])
+            escaped = html_module.escape(message.strip())
+            html_str = (
+                f'<div style="border-left:3px solid {accent};'
+                "padding:6px 12px;margin:4px 0;"
+                "font-family:var(--jp-ui-font-family, -apple-system, BlinkMacSystemFont, sans-serif);"
+                "font-size:var(--jp-ui-font-size1, 13px);"
+                "color:var(--jp-ui-font-color1, #333);"
+                f'white-space:pre-wrap">{escaped}</div>'
+            )
+            display(HTML(html_str))
+            return
+    except ImportError:
+        pass
+    print(message, flush=True)
+
 
 # Pure-CSS spinner shown while running.
 # Runs entirely in the browser -- no Python-side refresh needed.
@@ -152,7 +198,12 @@ class StreamingDisplay:
         self._result_meta: dict[str, Any] | None = None
         self._stopped = False
         # Auto-detect only works from the main IPython thread.
-        self._jupyter = jupyter if jupyter is not None else is_in_jupyter_notebook()
+        if jupyter is not None:
+            self._jupyter = jupyter
+        else:
+            from .integration import is_in_jupyter_notebook
+
+            self._jupyter = is_in_jupyter_notebook()
         self._fallback = False
 
         # Jupyter HTML widget (created in start())
