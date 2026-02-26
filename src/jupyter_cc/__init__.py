@@ -14,7 +14,7 @@ from .display import display_status
 from .magics import ClaudeCodeMagics
 from .watcher import CellWatcher
 
-__version__ = "1.0.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ClaudeCodeMagics",
