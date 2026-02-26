@@ -43,7 +43,7 @@ def test_version():
     output = run_ipython("""
 from jupyter_cc import __version__
 print(f"Version: {__version__}")
-assert __version__ == "1.0.0", f"Expected 1.0.0, got {__version__}"
+assert __version__ == "0.3.0", f"Expected 0.3.0, got {__version__}"
 print("PASS")
 """)
     assert "PASS" in output
