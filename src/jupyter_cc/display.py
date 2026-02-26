@@ -187,8 +187,9 @@ class StreamingDisplay:
     State-mutating methods (add_text, add_tool_call, etc.) are safe from any thread.
     """
 
-    def __init__(self, *, verbose: bool = False, jupyter: bool | None = None) -> None:
+    def __init__(self, *, verbose: bool = False, jupyter: bool | None = None, replace_mode: bool = False) -> None:
         self._verbose = verbose
+        self._replace_mode = replace_mode
         self._model: str | None = None
         # Single ordered list: ("text", str) | ("tool", _ToolCallEntry) | ("thinking", str)
         self._items: list[tuple[str, Any]] = []
@@ -433,7 +434,13 @@ class StreamingDisplay:
                 segments.append(f"{num_turns} turn{'s' if num_turns != 1 else ''}")
         if self._cells_created:
             n = self._cells_created
-            segments.append(f"\u2193 {n} code cell{'s' if n != 1 else ''} created below")
+            if self._replace_mode:
+                if n == 1:
+                    segments.append("\u2191 code cell replaced above")
+                else:
+                    segments.append(f"\u2191 code cell replaced above \u00b7 \u2193 {n - 1} more below")
+            else:
+                segments.append(f"\u2193 {n} code cell{'s' if n != 1 else ''} created below")
         if not segments:
             return ""
         return f'<div class="jcc-footer">{" \u00b7 ".join(segments)}</div>'

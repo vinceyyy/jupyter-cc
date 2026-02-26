@@ -425,7 +425,8 @@ Your client's request is <request>{prompt}</request>
         # state; stop() renders the final result from the main thread.
         from .display import StreamingDisplay
 
-        display = StreamingDisplay(verbose=verbose)
+        replace_mode = self._config_manager.should_cleanup_prompts or self._config_manager.replace_current_cell
+        display = StreamingDisplay(verbose=verbose, replace_mode=replace_mode)
         display.start()
 
         # Run the query with streaming
