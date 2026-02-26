@@ -10,12 +10,13 @@ import json
 import shutil
 from pathlib import Path
 
+from .capture import ImageCollector
 from .constants import WELCOME_TEXT
 from .display import display_status
 from .magics import ClaudeCodeMagics
 from .watcher import CellWatcher
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "ClaudeCodeMagics",
@@ -67,7 +68,9 @@ def load_ipython_extension(ipython: object) -> None:
     )
 
     cell_watcher = CellWatcher(ipython)
-    magics = ClaudeCodeMagics(ipython, cell_watcher)
+    image_collector = ImageCollector(ipython)
+    image_collector.install()
+    magics = ClaudeCodeMagics(ipython, cell_watcher, image_collector)
     ipython.register_magics(magics)
     ipython.events.register("pre_run_cell", cell_watcher.pre_run_cell)
     ipython.events.register("post_run_cell", cell_watcher.post_run_cell)

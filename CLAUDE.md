@@ -24,7 +24,8 @@ src/jupyter_cc/
 ├── integration.py   # Cell creation, queue management, env detection
 ├── history.py       # IPython cell history tracking
 ├── variables.py     # Session variable change detection
-├── capture.py       # Image extraction from cell outputs
+├── tools.py         # MCP tools: list_variables, inspect_variable
+├── capture.py       # Automatic image capture from display() calls
 ├── watcher.py       # "Run All" detection via timing heuristics
 ├── constants.py     # Help text, tool names
 └── py.typed         # PEP 561 marker
