@@ -3,18 +3,14 @@ Jupyter notebook integration for jupyter_cc.
 Handles cell creation, code display, and notebook-specific functionality.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
-
-from IPython import get_ipython  # type: ignore[attr-defined]
 
 if TYPE_CHECKING:
     from .magics import ClaudeCodeMagics
 
 
 def create_approval_cell(
-    parent: ClaudeCodeMagics,
+    parent: "ClaudeCodeMagics",
     code: str,
     request_id: str,
     should_cleanup_prompts: bool,
@@ -59,7 +55,7 @@ def create_approval_cell(
             parent.shell.user_ns["_claude_pending_input"] = marked_code
 
 
-def adjust_cell_queue_markers(parent: ClaudeCodeMagics) -> None:
+def adjust_cell_queue_markers(parent: "ClaudeCodeMagics") -> None:
     """Finalize cell markers after all tool calls complete."""
     if parent.shell is None:
         return
@@ -68,13 +64,11 @@ def adjust_cell_queue_markers(parent: ClaudeCodeMagics) -> None:
     if not cell_queue:
         return
 
-    # Keep the [CC] marker comment — it was already set in create_approval_cell
-    for i, cell_info in enumerate(cell_queue):
-        if i == 0:
-            parent.shell.user_ns["_claude_pending_input"] = cell_info["code"]
+    # Ensure the first cell is set as pending input
+    parent.shell.user_ns["_claude_pending_input"] = cell_queue[0]["code"]
 
 
-def process_cell_queue(parent: ClaudeCodeMagics) -> None:
+def process_cell_queue(parent: "ClaudeCodeMagics") -> None:
     """Process the cell queue after a successful cell execution."""
     if parent.shell is None:
         return
@@ -122,7 +116,18 @@ def process_cell_queue(parent: ClaudeCodeMagics) -> None:
                 )
 
 
+_is_jupyter_cached: bool | None = None
+
+
 def is_in_jupyter_notebook() -> bool:
-    """Check if we're running in a Jupyter notebook (vs IPython terminal)."""
-    ipython = get_ipython()
-    return ipython is not None and hasattr(ipython, "kernel")
+    """Check if we're running in a Jupyter notebook (vs IPython terminal).
+
+    Result is cached since the environment doesn't change during a session.
+    """
+    global _is_jupyter_cached  # noqa: PLW0603
+    if _is_jupyter_cached is None:
+        from IPython import get_ipython  # type: ignore[attr-defined]
+
+        ip = get_ipython()
+        _is_jupyter_cached = ip is not None and hasattr(ip, "kernel")
+    return _is_jupyter_cached

@@ -3,8 +3,6 @@ Configuration management for jupyter_cc.
 Handles all configuration options and command-line argument processing.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -59,6 +57,11 @@ class ConfigManager:
         self.cells_to_load: int = -1  # Default to -1 (load all) for initial %cc
         self.cells_to_load_user_set: bool = False  # Track if explicitly set by user
 
+    @property
+    def should_replace_cell(self) -> bool:
+        """Whether the current cell should be replaced (cleanup mode or cc_cur)."""
+        return self.should_cleanup_prompts or self.replace_current_cell
+
     def reset_for_new_conversation(self) -> None:
         """Reset settings for a new conversation."""
         self.is_new_conversation = True
@@ -69,7 +72,7 @@ class ConfigManager:
         if not self.cells_to_load_user_set:
             self.cells_to_load = 0
 
-    def handle_cc_options(self, args: Any, cell_watcher: CellWatcher) -> bool:
+    def handle_cc_options(self, args: Any, cell_watcher: "CellWatcher") -> bool:
         """
         Handle all command-line options for the cc magic command.
 
@@ -182,23 +185,9 @@ class ConfigManager:
         # No options were handled
         return False
 
-    def get_mcp_servers(self, mcp_server_script: str) -> dict[str, Any]:
-        """Get the MCP servers configuration.
-
-        Args:
-            mcp_server_script: Path to the local executor MCP server script
-
-        Returns:
-            Dictionary of MCP server configurations
-        """
+    def get_mcp_servers(self) -> dict[str, Any]:
+        """Get the MCP servers configuration from the mcp_config_file if set."""
         mcp_servers: dict[str, Any] = {}
-
-        # Add the local executor if a script path is provided
-        if mcp_server_script:
-            mcp_servers["local_executor"] = {
-                "command": "python",
-                "args": [mcp_server_script],
-            }
 
         # If we have an MCP config file, load servers from it
         if self.mcp_config_file:

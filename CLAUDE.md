@@ -67,4 +67,4 @@ variable tracking, cell history, image capture, system prompt, and SDK configura
 - Uses `anyio` for async (not trio). SDK v0.1.39+ uses anyio internally
 - `ClaudeSDKClient` as context manager, fresh client per query
 - Python >=3.13, line-length 120
-- Some files have relaxed linting (E501, F841) due to upstream style -- see `pyproject.toml`
+- Some files have relaxed linting (E501) for long string literals -- see `pyproject.toml`
