@@ -25,6 +25,8 @@ from claude_agent_sdk import (
 from IPython.core.magic import Magics, line_cell_magic, magics_class
 from IPython.core.magic_arguments import argument, magic_arguments, parse_argstring
 
+import jupyter_cc.tools as _tools_module
+
 from .capture import (
     extract_images_from_captured,
     format_images_summary,
@@ -40,6 +42,7 @@ from .integration import (
     process_cell_queue,
 )
 from .prompt import get_system_prompt, prepare_imported_files_content
+from .tools import inspect_variable_tool, list_variables_tool
 from .variables import VariableTracker
 
 if TYPE_CHECKING:
@@ -144,11 +147,14 @@ class ClaudeCodeMagics(Magics):
         # Will be initialized on first use
         self._client_manager: ClaudeClientManager | None = None
 
+        # Set shell reference so kernel tools can access the namespace
+        _tools_module._shell = shell
+
         # Create SDK MCP server once — the tool config is static
         self._sdk_server = create_sdk_mcp_server(
             name="jupyter_executor",
             version="1.0.0",
-            tools=[execute_python_tool],
+            tools=[execute_python_tool, list_variables_tool, inspect_variable_tool],
         )
 
         # Register post-execution hook to process cell queue
@@ -361,6 +367,8 @@ Your client's request is <request>{prompt}</request>
                 "WebSearch",
                 "WebFetch",
                 "mcp__jupyter__create_python_cell",
+                "mcp__jupyter__list_variables",
+                "mcp__jupyter__inspect_variable",
             ],
             model=self._config_manager.model,
             mcp_servers=mcp_servers,
