@@ -34,6 +34,7 @@ class ImageCollector:
             **kwargs: Any,
         ) -> Any:
             if data:
+                cell_num = getattr(self._shell, "execution_count", None)
                 for fmt in _IMAGE_FORMATS:
                     if fmt in data:
                         self._images.append(
@@ -41,6 +42,7 @@ class ImageCollector:
                                 "format": fmt,
                                 "data": data[fmt],
                                 "metadata": metadata or {},
+                                "cell": cell_num,
                             }
                         )
                         if len(self._images) > _MAX_IMAGES:
@@ -65,7 +67,7 @@ class ImageCollector:
         """Create a text summary of captured images."""
         if not images:
             return ""
-        lines = [f"Captured {len(images)} image(s) from cell execution:"]
-        for i, img in enumerate(images, 1):
-            lines.append(f"  {i}. {img['format']}")
-        return "\n".join(lines)
+        cells = sorted({img["cell"] for img in images if img.get("cell") is not None})
+        if cells:
+            return f"Captured {len(images)} image(s) from cell execution {cells}"
+        return f"Captured {len(images)} image(s) from cell execution"

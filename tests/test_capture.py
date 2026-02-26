@@ -85,6 +85,26 @@ class TestImageCollector:
         assert images[0]["data"] == "data_5"
         assert images[-1]["data"] == "data_24"
 
+    def test_captures_cell_execution_number(self, collector: ImageCollector, mock_shell: MagicMock) -> None:
+        mock_shell.execution_count = 5
+        collector.install()
+        mock_shell.display_pub.publish(data={"image/png": "data"}, metadata={})
+        images = collector.drain()
+        assert images[0]["cell"] == 5
+
+    def test_format_summary_with_cells(self, collector: ImageCollector, mock_shell: MagicMock) -> None:
+        mock_shell.execution_count = 3
+        collector.install()
+        mock_shell.display_pub.publish(data={"image/png": "d1"}, metadata={})
+        mock_shell.execution_count = 5
+        mock_shell.display_pub.publish(data={"image/png": "d2"}, metadata={})
+        images = collector.drain()
+        summary = collector.format_summary(images)
+        assert "Captured 2 image(s) from cell execution [3, 5]" == summary
+
+    def test_format_summary_empty(self, collector: ImageCollector) -> None:
+        assert collector.format_summary([]) == ""
+
     def test_passthrough_to_original(self, collector: ImageCollector, mock_shell: MagicMock) -> None:
         original = mock_shell.display_pub.publish
         collector.install()
