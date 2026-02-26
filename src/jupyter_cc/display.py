@@ -196,6 +196,7 @@ class StreamingDisplay:
         self._error: str | None = None
         self._interrupted = False
         self._result_meta: dict[str, Any] | None = None
+        self._cells_created: int = 0
         self._stopped = False
         # Auto-detect only works from the main IPython thread.
         if jupyter is not None:
@@ -263,6 +264,8 @@ class StreamingDisplay:
         display_text = format_tool_call(tool_name, tool_input)
         entry = _ToolCallEntry(display_text, tool_id)
         self._items.append(("tool", entry))
+        if tool_name == EXECUTE_PYTHON_TOOL_NAME:
+            self._cells_created += 1
         if self._verbose:
             entry.display_text += f"\n  Arguments: {tool_input}"
         self._refresh()
@@ -401,32 +404,36 @@ class StreamingDisplay:
 
         parts.append("</div>")  # close .jcc-body
 
-        # Result metadata footer
-        if self._result_meta:
+        # Result metadata footer (also shows cell-creation hint)
+        if self._result_meta or self._cells_created:
             parts.append(self._render_footer())
 
         parts.append("</div>")  # close .jcc-output
         return "".join(parts)
 
     def _render_footer(self) -> str:
-        """Render result metadata footer (duration, tokens, turns)."""
+        """Render result metadata footer (duration, tokens, turns, cell hint)."""
         meta = self._result_meta
-        if not meta:
-            return ""
         segments: list[str] = []
-        duration_ms = meta.get("duration_ms", 0)
-        if duration_ms:
-            secs = duration_ms / 1000
-            segments.append(f"{secs:.1f}s")
-        usage = meta.get("usage")
-        if usage:
-            input_tokens = usage.get("input_tokens", 0)
-            output_tokens = usage.get("output_tokens", 0)
-            if input_tokens or output_tokens:
-                segments.append(f"{input_tokens + output_tokens:,} tokens")
-        num_turns = meta.get("num_turns", 0)
-        if num_turns:
-            segments.append(f"{num_turns} turn{'s' if num_turns != 1 else ''}")
+        if not meta and not self._cells_created:
+            return ""
+        if meta:
+            duration_ms = meta.get("duration_ms", 0)
+            if duration_ms:
+                secs = duration_ms / 1000
+                segments.append(f"{secs:.1f}s")
+            usage = meta.get("usage")
+            if usage:
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+                if input_tokens or output_tokens:
+                    segments.append(f"{input_tokens + output_tokens:,} tokens")
+            num_turns = meta.get("num_turns", 0)
+            if num_turns:
+                segments.append(f"{num_turns} turn{'s' if num_turns != 1 else ''}")
+        if self._cells_created:
+            n = self._cells_created
+            segments.append(f"\u2193 {n} code cell{'s' if n != 1 else ''} created below")
         if not segments:
             return ""
         return f'<div class="jcc-footer">{" \u00b7 ".join(segments)}</div>'
