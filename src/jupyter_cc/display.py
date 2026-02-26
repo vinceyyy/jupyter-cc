@@ -10,8 +10,6 @@ In terminals:
   - Falls back to plain print()
 """
 
-from __future__ import annotations
-
 import html as html_module
 import logging
 import threading
@@ -98,69 +96,69 @@ def format_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
 
     display_name = tool_display_names.get(tool_name, tool_name)
 
-    if tool_name == "Read":
-        file_path = tool_input.get("file_path", "")
-        parts = [f"{display_name}({file_path})"]
-        if "offset" in tool_input:
-            parts.append(f"offset: {tool_input['offset']}")
-        if "limit" in tool_input:
-            parts.append(f"limit: {tool_input['limit']}")
-        return " ".join(parts)
+    match tool_name:
+        case "Read":
+            file_path = tool_input.get("file_path", "")
+            parts = [f"{display_name}({file_path})"]
+            if "offset" in tool_input:
+                parts.append(f"offset: {tool_input['offset']}")
+            if "limit" in tool_input:
+                parts.append(f"limit: {tool_input['limit']}")
+            return " ".join(parts)
 
-    if tool_name == "LS":
-        path = tool_input.get("path", "")
-        return f"{display_name}({path})"
+        case "LS":
+            path = tool_input.get("path", "")
+            return f"{display_name}({path})"
 
-    if tool_name == "GrepToolv2":
-        pattern = tool_input.get("pattern", "")
-        parts = [f'{display_name}(pattern: "{pattern}"']
-        path = tool_input.get("path")
-        if path:
-            parts.append(f'path: "{path}"')
-        if "glob" in tool_input:
-            parts.append(f'glob: "{tool_input["glob"]}"')
-        if "type" in tool_input:
-            parts.append(f'type: "{tool_input["type"]}"')
-        if tool_input.get("output_mode") and tool_input["output_mode"] != "files_with_matches":
-            parts.append(f'output_mode: "{tool_input["output_mode"]}"')
-        if "head_limit" in tool_input:
-            parts.append(f"head_limit: {tool_input['head_limit']}")
-        return ", ".join(parts) + ")"
+        case "GrepToolv2":
+            pattern = tool_input.get("pattern", "")
+            parts = [f'{display_name}(pattern: "{pattern}"']
+            path = tool_input.get("path")
+            if path:
+                parts.append(f'path: "{path}"')
+            if "glob" in tool_input:
+                parts.append(f'glob: "{tool_input["glob"]}"')
+            if "type" in tool_input:
+                parts.append(f'type: "{tool_input["type"]}"')
+            if tool_input.get("output_mode") and tool_input["output_mode"] != "files_with_matches":
+                parts.append(f'output_mode: "{tool_input["output_mode"]}"')
+            if "head_limit" in tool_input:
+                parts.append(f"head_limit: {tool_input['head_limit']}")
+            return ", ".join(parts) + ")"
 
-    if tool_name == "Bash":
-        command = tool_input.get("command", "")
-        return f'{display_name}("{command}")'
+        case "Bash":
+            command = tool_input.get("command", "")
+            return f'{display_name}("{command}")'
 
-    if tool_name in ["Write", "Edit", "MultiEdit"]:
-        file_path = tool_input.get("file_path", "")
-        return f"{display_name}({file_path})"
+        case "Write" | "Edit" | "MultiEdit":
+            file_path = tool_input.get("file_path", "")
+            return f"{display_name}({file_path})"
 
-    if tool_name == "Glob":
-        pattern = tool_input.get("pattern", "")
-        path = tool_input.get("path", "")
-        if path:
-            return f'{display_name}(pattern: "{pattern}", path: "{path}")'
-        return f'{display_name}("{pattern}")'
+        case "Glob":
+            pattern = tool_input.get("pattern", "")
+            path = tool_input.get("path", "")
+            if path:
+                return f'{display_name}(pattern: "{pattern}", path: "{path}")'
+            return f'{display_name}("{pattern}")'
 
-    if tool_name == "WebFetch":
-        url = tool_input.get("url", "")
-        return f'{display_name}("{url}")'
+        case "WebFetch":
+            url = tool_input.get("url", "")
+            return f'{display_name}("{url}")'
 
-    if tool_name == "WebSearch":
-        query = tool_input.get("query", "")
-        return f'{display_name}("{query}")'
+        case "WebSearch":
+            query = tool_input.get("query", "")
+            return f'{display_name}("{query}")'
 
-    if tool_name == "TodoWrite":
-        todos = tool_input.get("todos", [])
-        return f"{display_name}({len(todos)} items)"
+        case "TodoWrite":
+            todos = tool_input.get("todos", [])
+            return f"{display_name}({len(todos)} items)"
 
-    if tool_name == EXECUTE_PYTHON_TOOL_NAME:
-        description = tool_input.get("description", "")
-        if description:
-            return f'{display_name}("{description}")'
-        return display_name
-
-    return display_name
+        case _:
+            if tool_name == EXECUTE_PYTHON_TOOL_NAME:
+                description = tool_input.get("description", "")
+                if description:
+                    return f'{display_name}("{description}")'
+            return display_name
 
 
 class _ToolCallEntry:

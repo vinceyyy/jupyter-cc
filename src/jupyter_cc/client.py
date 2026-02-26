@@ -3,14 +3,12 @@ Claude API client integration for jupyter_cc.
 Handles streaming queries and message processing by creating fresh ClaudeSDKClient instances.
 """
 
-from __future__ import annotations
-
 import contextlib
 import logging
-import traceback
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import anyio
+from anyio import BrokenResourceError, ClosedResourceError
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -24,9 +22,6 @@ from claude_agent_sdk import (
 )
 
 from .display import StreamingDisplay
-
-if TYPE_CHECKING:
-    from .magics import ClaudeCodeMagics
 
 logger = logging.getLogger(__name__)
 
@@ -236,21 +231,12 @@ class ClaudeClientManager:
             errors = list(e.exceptions) if isinstance(e, ExceptionGroup) else [e]
 
             for err in errors:
-                error_type_str = str(type(err))
-                error_msg_str = str(err)
-                if any(
-                    token in error_type_str or token in error_msg_str
-                    for token in [
-                        "BrokenResourceError",
-                        "BrokenPipeError",
-                        "ClosedResourceError",
-                    ]
-                ):
+                if isinstance(err, (BrokenPipeError, ConnectionError, BrokenResourceError, ClosedResourceError)):
                     if not self._interrupt_requested:
                         display.show_error("Connection was lost. A new connection will be created automatically.")
                 else:
                     display.show_error(str(err))
-                    traceback.print_exception(type(err), err, err.__traceback__)
+                    logger.exception("Unexpected error during query", exc_info=err)
         finally:
             if owns_display:
                 display.stop()
@@ -274,28 +260,3 @@ class ClaudeClientManager:
     def session_id(self) -> str | None:
         """Get the current session ID if available."""
         return self._session_id
-
-
-async def run_streaming_query(
-    parent: ClaudeCodeMagics,
-    prompt: str | list[dict[str, Any]],
-    options: ClaudeAgentOptions,
-    verbose: bool,
-    *,
-    display: StreamingDisplay | None = None,
-) -> None:
-    """
-    Run Claude query with real-time message streaming using a fresh client.
-    This function maintains compatibility with the existing interface.
-    """
-    # Ensure client manager exists
-    if not hasattr(parent, "_client_manager") or parent._client_manager is None:
-        parent._client_manager = ClaudeClientManager()
-
-    # Run the query with a fresh client
-    await parent._client_manager.query_sync(
-        prompt, options, parent._config_manager.is_new_conversation, verbose, display=display
-    )
-
-    # Update last output line
-    parent._history_manager.update_last_output_line()

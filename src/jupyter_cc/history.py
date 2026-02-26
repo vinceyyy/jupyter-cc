@@ -3,18 +3,26 @@ IPython history management for jupyter_cc.
 Handles cell history tracking and formatting.
 """
 
-from __future__ import annotations
-
+import logging
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from IPython.core.interactiveshell import InteractiveShell
 
 
+def _unpack_history_item(item: Any) -> tuple[Any, Any]:
+    """Unpack a history item into (input_code, output_result)."""
+    if isinstance(item, tuple):
+        return item[0], item[1]
+    return item, None
+
+
 class HistoryManager:
     """Manages IPython history tracking and formatting."""
 
-    def __init__(self, shell: InteractiveShell | None) -> None:
+    def __init__(self, shell: "InteractiveShell | None") -> None:
         """Initialize the history manager.
 
         Args:
@@ -75,16 +83,16 @@ class HistoryManager:
 
         # Add input with its own tags
         cell_parts.append(f"<cell-in-{line_num}>")
-        cell_parts.append(f"{input_code.strip()}")
+        cell_parts.append(input_code.strip())
         cell_parts.append(f"</cell-in-{line_num}>")
 
         # Add output with its own tags if it exists
         if output_result is not None:
             cell_parts.append(f"<cell-out-{line_num}>")
             if isinstance(output_result, str):
-                cell_parts.append(f"{output_result}")
+                cell_parts.append(output_result)
             else:
-                cell_parts.append(f"{output_result!r}")
+                cell_parts.append(repr(output_result))
             cell_parts.append(f"</cell-out-{line_num}>")
 
         return "\n".join(cell_parts)
@@ -103,12 +111,7 @@ class HistoryManager:
 
             if history:
                 for _, line_num, item in history:
-                    # Extract input and output from item
-                    if isinstance(item, tuple):
-                        input_code, output_result = item
-                    else:
-                        input_code = item
-                        output_result = None
+                    input_code, output_result = _unpack_history_item(item)
 
                     # Skip claude magic commands
                     if input_code and not input_code.strip().startswith("get_ipython().run_cell_magic"):
@@ -141,6 +144,7 @@ class HistoryManager:
             return ""
 
         except Exception:
+            logger.debug("Failed to retrieve shell output", exc_info=True)
             return ""
 
     def get_last_executed_cells(self, n: int) -> str:
@@ -174,12 +178,7 @@ class HistoryManager:
             cells_content.append("Last executed cells from this session:")
 
             for _session_id, line_num, item in history:
-                # Extract input and output from item
-                if isinstance(item, tuple):
-                    input_code, output_result = item
-                else:
-                    input_code = item
-                    output_result = None
+                input_code, output_result = _unpack_history_item(item)
 
                 # Skip magic commands
                 if input_code and not input_code.strip().startswith("get_ipython().run_cell_magic"):
@@ -191,4 +190,5 @@ class HistoryManager:
             return ""
 
         except Exception:
+            logger.debug("Failed to retrieve executed cells", exc_info=True)
             return ""

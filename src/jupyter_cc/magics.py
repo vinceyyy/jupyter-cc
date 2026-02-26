@@ -1,22 +1,16 @@
 """
 IPython magic for Claude Code using SDK's in-process MCP server.
 
-This refactored version eliminates the separate MCP and HTTP servers by using
-the Claude Code SDK's @tool decorator and create_sdk_mcp_server functionality.
-Instead of the complex flow: Claude -> MCP Server Process -> HTTP Server -> Jupyter,
-we now have: Claude -> In-Process SDK Tool -> Jupyter.
+Uses the Claude Code SDK's @tool decorator and create_sdk_mcp_server to
+provide direct in-process tool execution: Claude -> SDK Tool -> Jupyter.
 """
-
-from __future__ import annotations
 
 import argparse
 import contextlib
+import logging
 import queue
 import signal
-import sys
 import threading
-import time
-import traceback
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,7 +29,7 @@ from .capture import (
     extract_images_from_captured,
     format_images_summary,
 )
-from .client import ClaudeClientManager, run_streaming_query
+from .client import ClaudeClientManager
 from .config import ConfigManager
 from .display import display_status
 from .history import HistoryManager
@@ -55,8 +49,22 @@ if TYPE_CHECKING:
 
     from .watcher import CellWatcher
 
+logger = logging.getLogger(__name__)
+
 # Global variables
-_magic_instance: ClaudeCodeMagics | None = None
+_magic_instance: "ClaudeCodeMagics | None" = None
+
+
+async def _tool_error(message: str) -> dict[str, Any]:
+    """Build an error response for an SDK tool call."""
+    await anyio.lowlevel.checkpoint()
+    return {"content": [{"type": "text", "text": message}], "is_error": True}
+
+
+async def _tool_success(message: str) -> dict[str, Any]:
+    """Build a success response for an SDK tool call."""
+    await anyio.lowlevel.checkpoint()
+    return {"content": [{"type": "text", "text": message}]}
 
 
 @tool(
@@ -67,36 +75,19 @@ _magic_instance: ClaudeCodeMagics | None = None
 async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
     """Handle create_python_cell tool calls - create cells and return immediately."""
     if _magic_instance is None:
-        # Ensure async checkpoint before returning
-        await anyio.lowlevel.checkpoint()
-        return {
-            "content": [{"type": "text", "text": "❌ Magic instance not initialized"}],
-            "is_error": True,
-        }
+        return await _tool_error("❌ Magic instance not initialized")
 
     code = args.get("code", "")
     description = args.get("description", "")
     if not code:
-        # Ensure async checkpoint before returning
-        await anyio.lowlevel.checkpoint()
-        return {
-            "content": [{"type": "text", "text": "❌ No code provided"}],
-            "is_error": True,
-        }
+        return await _tool_error("❌ No code provided")
 
     # Check if max_cells limit has been reached
     if _magic_instance._config_manager.create_python_cell_count >= _magic_instance._config_manager.max_cells:
-        # Ensure async checkpoint before returning
-        await anyio.lowlevel.checkpoint()
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"❌ Maximum number of cells ({_magic_instance._config_manager.max_cells}) reached for this turn. Please wait for the user to provide additional input before creating more cells.",
-                }
-            ],
-            "is_error": True,
-        }
+        return await _tool_error(
+            f"❌ Maximum number of cells ({_magic_instance._config_manager.max_cells}) reached for this turn. "
+            "Please wait for the user to provide additional input before creating more cells."
+        )
 
     # Generate tool_use_id for tracking
     tool_use_id = str(uuid.uuid4())
@@ -110,9 +101,7 @@ async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
 
         # Initialize the request if it doesn't exist
         if request_id not in _magic_instance.pending_requests:
-            _magic_instance.pending_requests[request_id] = {
-                "timestamp": time.time(),
-            }
+            _magic_instance.pending_requests[request_id] = {}
 
         # Create cell in IPython
         _magic_instance._create_approval_cell(code, request_id, tool_use_id, description)
@@ -120,33 +109,20 @@ async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
         # Increment the counter after successful cell creation
         _magic_instance._config_manager.create_python_cell_count += 1
 
-        # Ensure async checkpoint before returning
-        await anyio.lowlevel.checkpoint()
-        # Return immediately - don't wait for user
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": "✅ Code cell created. Waiting for user to review and execute. The user will run %cc when ready to proceed.",
-                }
-            ]
-        }
+        return await _tool_success(
+            "✅ Code cell created. Waiting for user to review and execute. The user will run %cc when ready to proceed."
+        )
 
     except Exception as e:
-        traceback.print_exc(file=sys.stderr)
-        # Ensure async checkpoint before returning
-        await anyio.lowlevel.checkpoint()
-        return {
-            "content": [{"type": "text", "text": f"❌ Error creating cells: {e!s}"}],
-            "is_error": True,
-        }
+        logger.exception("Error in create_python_cell tool")
+        return await _tool_error(f"❌ Error creating cells: {e}")
 
 
 @magics_class
 class ClaudeCodeMagics(Magics):
     """IPython magic for Claude Code with direct SDK integration."""
 
-    def __init__(self, shell: InteractiveShell, cell_watcher: CellWatcher) -> None:
+    def __init__(self, shell: "InteractiveShell", cell_watcher: "CellWatcher") -> None:
         super().__init__(shell)
         global _magic_instance  # noqa: PLW0603
         _magic_instance = self
@@ -163,9 +139,6 @@ class ClaudeCodeMagics(Magics):
 
         # Track the current request ID for the batch of tool calls
         self.current_request_id: str | None = None
-
-        # Track last line number we've seen for shell output
-        # Now handled by history_manager
 
         # Claude client manager for persistent connections
         # Will be initialized on first use
@@ -191,8 +164,7 @@ class ClaudeCodeMagics(Magics):
         self, code: str, request_id: str, tool_use_id: str | None = None, description: str = ""
     ) -> None:
         """Create a cell for user approval of code execution."""
-        should_replace = self._config_manager.should_cleanup_prompts or self._config_manager.replace_current_cell
-        create_approval_cell(self, code, request_id, should_replace, tool_use_id, description)
+        create_approval_cell(self, code, request_id, self._config_manager.should_replace_cell, tool_use_id, description)
 
     def _post_run_cell_hook(self, result: Any) -> None:
         """Hook that runs after each cell execution to process the queue."""
@@ -269,12 +241,7 @@ class ClaudeCodeMagics(Magics):
             with contextlib.suppress(Exception):
                 self.shell.events.unregister("post_run_cell", self._post_run_cell_hook)
 
-        # Clear Claude client manager
-        if self._client_manager is not None:
-            with contextlib.suppress(Exception):
-                # Just clear the reference - no need to disconnect since
-                # we're creating fresh clients for each query now
-                self._client_manager = None
+        self._client_manager = None
 
     def _execute_prompt(
         self,
@@ -377,14 +344,9 @@ Your client's request is <request>{prompt}</request>
         else:
             enhanced_prompt = enhanced_prompt_text
 
-        # Build MCP servers dictionary - explicitly type as McpServerConfig to handle union type
-        mcp_servers: dict[str, McpServerConfig] = {"jupyter": self._sdk_server}  # Start with our SDK server
-
-        # Configure any additional MCP servers from config
-        additional_mcp_servers = self._config_manager.get_mcp_servers("")  # Pass empty string instead of None
-
+        mcp_servers: dict[str, McpServerConfig] = {"jupyter": self._sdk_server}
+        additional_mcp_servers = self._config_manager.get_mcp_servers()
         if additional_mcp_servers:
-            # Merge with our SDK server
             mcp_servers.update(additional_mcp_servers)
 
         options = ClaudeAgentOptions(
@@ -401,7 +363,7 @@ Your client's request is <request>{prompt}</request>
                 "mcp__jupyter__create_python_cell",
             ],
             model=self._config_manager.model,
-            mcp_servers=mcp_servers,  # Use the combined dictionary
+            mcp_servers=mcp_servers,
             system_prompt={
                 "type": "preset",
                 "preset": "claude_code",
@@ -425,8 +387,7 @@ Your client's request is <request>{prompt}</request>
         # state; stop() renders the final result from the main thread.
         from .display import StreamingDisplay
 
-        replace_mode = self._config_manager.should_cleanup_prompts or self._config_manager.replace_current_cell
-        display = StreamingDisplay(verbose=verbose, replace_mode=replace_mode)
+        display = StreamingDisplay(verbose=verbose, replace_mode=self._config_manager.should_replace_cell)
         display.start()
 
         # Run the query with streaming
@@ -450,7 +411,7 @@ Your client's request is <request>{prompt}</request>
         # Set up interrupt handler that sends interrupt signal to Claude
         original_handler = None
 
-        def interrupt_handler(signum: int, frame: FrameType | None) -> None:
+        def interrupt_handler(signum: int, frame: "FrameType | None") -> None:
             # Send interrupt signal to Claude client if one exists
             if self._client_manager is not None:
                 # Handle interrupt in a separate thread to avoid nesting anyio.run()
@@ -477,10 +438,6 @@ Your client's request is <request>{prompt}</request>
         if not exception_queue.empty():
             raise exception_queue.get()
 
-        # Update last_output_line to current position after conversation completes
-        # This ensures the next call will capture any cells executed after set_next_input
-        self._history_manager.update_last_output_line()
-
         adjust_cell_queue_markers(self)
 
         # After the async operation completes, set any pending input for terminal
@@ -491,7 +448,7 @@ Your client's request is <request>{prompt}</request>
                 # Now we can safely set the next input
                 self.shell.set_next_input(
                     pending_input,
-                    replace=self._config_manager.should_cleanup_prompts or self._config_manager.replace_current_cell,
+                    replace=self._config_manager.should_replace_cell,
                 )
 
         self._config_manager.is_new_conversation = False
@@ -505,9 +462,15 @@ Your client's request is <request>{prompt}</request>
         display: Any = None,
     ) -> None:
         """Run Claude query with real-time message streaming."""
+        if self._client_manager is None:
+            self._client_manager = ClaudeClientManager()
+
         self._config_manager.is_current_execution_verbose = verbose
-        await run_streaming_query(self, prompt, options, verbose, display=display)
+        await self._client_manager.query_sync(
+            prompt, options, self._config_manager.is_new_conversation, verbose, display=display
+        )
         self._config_manager.is_current_execution_verbose = False
+        self._history_manager.update_last_output_line()
 
     def _claude_continue_impl(self, request_id: str, additional_prompt: str = "", verbose: bool = False) -> str:
         cell_queue: list[dict[str, Any]] = self.shell.user_ns.get("_claude_cell_queue", []) if self.shell else []
@@ -548,7 +511,7 @@ Your client's request is <request>{prompt}</request>
                                     output = str(output_result)
                                 break
                 except Exception:
-                    pass
+                    logger.debug("Failed to retrieve output for cell %d", i, exc_info=True)
 
             # Build result summary
             if tool_use_id:
