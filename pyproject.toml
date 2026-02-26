@@ -9,7 +9,6 @@ dependencies = [
     "anyio>=4.12.1",
     "claude-agent-sdk>=0.1.39",
     "ipython>=9.10.0",
-    "ipywidgets>=8.1.8",
     "markdown>=3.7",
 ]
 
@@ -41,7 +40,8 @@ select = ["E", "F", "W", "I", "B", "N", "UP", "ASYNC", "S", "PTH"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S603"]
-# Ported from upstream — string literals in prompts/help exceed 120 chars
+# Long string literals: CSS variables, prompts, help text
+"src/jupyter_cc/display.py" = ["E501"]
 "src/jupyter_cc/prompt.py" = ["E501", "S110"]
 "src/jupyter_cc/constants.py" = ["E501"]
 "src/jupyter_cc/magics.py" = ["E501", "F841", "S110"]

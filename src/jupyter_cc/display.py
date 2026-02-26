@@ -3,8 +3,9 @@ Streaming display for Claude responses.
 
 In Jupyter notebooks:
   - Shows a CSS spinner while loading
-  - Live-updates an ipywidgets.HTML widget with throttled refresh
-  - Renders markdown text, tool calls, errors via native HTML with JupyterLab theme variables
+  - Live-updates HTML via IPython's display_id mechanism with throttled refresh
+  - Renders markdown text, tool calls, errors via native HTML with theme variables
+  - Theme-adaptive CSS: JupyterLab (--jp-*), VS Code (--vscode-*), and safe fallbacks
 
 In terminals:
   - Falls back to plain print()
@@ -26,12 +27,14 @@ logger = logging.getLogger(__name__)
 # Styled status messages (consistent HTML output in Jupyter)
 # ---------------------------------------------------------------------------
 
-# Accent colors for each message kind, using JupyterLab CSS variables.
+# Accent colors for each message kind.
+# These are hardcoded since display_status() uses inline styles (can't scope
+# via body[data-vscode-theme-kind]). The colors work on both light/dark.
 _STATUS_ACCENT = {
-    "success": "var(--jp-success-color1, #4caf50)",
-    "warning": "var(--jp-warn-color1, #f57c00)",
-    "error": "var(--jp-error-color1, #d32f2f)",
-    "info": "var(--jp-brand-color1, #4a90d9)",
+    "success": "#4caf50",
+    "warning": "#f57c00",
+    "error": "#d32f2f",
+    "info": "#4a90d9",
 }
 
 
@@ -57,9 +60,7 @@ def display_status(message: str, *, kind: str = "info") -> None:
             html_str = (
                 f'<div style="border-left:3px solid {accent};'
                 "padding:6px 12px;margin:4px 0;"
-                "font-family:var(--jp-ui-font-family, -apple-system, BlinkMacSystemFont, sans-serif);"
-                "font-size:var(--jp-ui-font-size1, 13px);"
-                "color:var(--jp-ui-font-color1, #333);"
+                "font-family:inherit;font-size:13px;color:inherit;"
                 f'white-space:pre-wrap">{escaped}</div>'
             )
             display(HTML(html_str))
@@ -69,14 +70,16 @@ def display_status(message: str, *, kind: str = "info") -> None:
     print(message, flush=True)
 
 
-# Pure-CSS spinner shown while running.
-# Runs entirely in the browser -- no Python-side refresh needed.
+# Inline-styled spinner shown before the full CSS loads.
+# Uses neutral values since inline styles can't scope via body[data-vscode-theme-kind].
 _CSS_SPINNER_HTML = (
     '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
-    'font-family:sans-serif;font-size:13px;color:var(--jp-ui-font-color2, #888)">'
-    '<div style="width:14px;height:14px;border:2px solid var(--jp-border-color1, #e0e0e0);'
-    "border-top:2px solid var(--jp-brand-color1, #4a90d9);border-radius:50%;"
-    'animation:jcc-spin .8s linear infinite"></div>'
+    "font-family:inherit;font-size:13px;"
+    'color:color-mix(in srgb, currentColor, transparent 35%)">'
+    '<div style="width:14px;height:14px;'
+    "border:2px solid rgba(128,128,128,0.2);"
+    "border-top:2px solid #4a90d9;"
+    'border-radius:50%;animation:jcc-spin .8s linear infinite"></div>'
     "<span>Running&hellip;</span></div>"
     "<style>@keyframes jcc-spin{0%{transform:rotate(0deg)}"
     "100%{transform:rotate(360deg)}}</style>"
@@ -175,11 +178,11 @@ class StreamingDisplay:
     Display for Claude responses.
 
     Jupyter mode:
-      - CSS spinner initially, then live-updated HTML widget
+      - CSS spinner initially, then live-updated HTML via display_id
       - Throttled refresh to avoid excessive DOM updates
 
     Fallback:
-      - Plain print() for terminals and environments without ipywidgets
+      - Plain print() for terminals
 
     Must be created and start()'d from the main IPython thread.
     State-mutating methods (add_text, add_tool_call, etc.) are safe from any thread.
@@ -206,8 +209,8 @@ class StreamingDisplay:
             self._jupyter = is_in_jupyter_notebook()
         self._fallback = False
 
-        # Jupyter HTML widget (created in start())
-        self._widget: Any | None = None  # ipywidgets.HTML
+        # display_id for updatable HTML output (created in start())
+        self._display_id: str | None = None
 
         # Throttling state (guarded by _refresh_lock for cross-thread safety)
         self._refresh_lock = threading.Lock()
@@ -222,15 +225,20 @@ class StreamingDisplay:
         """Start the live display. Must be called from the main IPython thread."""
         if self._jupyter:
             try:
-                import ipywidgets as widgets
-                from IPython.display import display
+                import uuid
 
-                self._widget = widgets.HTML(value=_CSS_SPINNER_HTML)
-                display(self._widget)
+                from IPython.display import HTML, display
+
+                self._display_id = f"jcc-{uuid.uuid4().hex[:8]}"
+                display(HTML(_CSS_SPINNER_HTML), display_id=self._display_id)
             except Exception:
-                logger.debug("ipywidgets unavailable, falling back to print()", exc_info=True)
+                logger.debug("display_id unavailable, falling back to print()", exc_info=True)
                 self._jupyter = False
                 self._fallback = True
+                print(
+                    "[jupyter-cc] Rich display unavailable — using plain text output.",
+                    flush=True,
+                )
             return
 
         # Terminal mode: plain print fallback
@@ -242,7 +250,7 @@ class StreamingDisplay:
         if self._pending_timer is not None:
             self._pending_timer.cancel()
             self._pending_timer = None
-        if self._jupyter and self._widget is not None:
+        if self._jupyter and self._display_id is not None:
             self._refresh(force=True)
             return
 
@@ -328,7 +336,7 @@ class StreamingDisplay:
             self._print_fallback_latest()
             return
 
-        if not self._jupyter or self._widget is None:
+        if not self._jupyter or self._display_id is None:
             return
 
         with self._refresh_lock:
@@ -341,10 +349,9 @@ class StreamingDisplay:
                     self._pending_timer.start()
                 return
 
-            # Thread safety: ipywidgets >= 8.x serializes .value assignments through
-            # the kernel's Comm channel. Background-thread writes are safe for simple
-            # trait updates like HTML.value. See pyproject.toml: ipywidgets>=8.1.8.
-            self._widget.value = self._render_jupyter_html()
+            from IPython.display import HTML, update_display
+
+            update_display(HTML(self._render_jupyter_html()), display_id=self._display_id)
             self._last_refresh = now
             self._dirty = False
 
@@ -403,8 +410,8 @@ class StreamingDisplay:
 
         parts.append("</div>")  # close .jcc-body
 
-        # Result metadata footer (also shows cell-creation hint)
-        if self._result_meta or self._cells_created:
+        # Result metadata footer — only after processing completes
+        if self._stopped and (self._result_meta or self._cells_created):
             parts.append(self._render_footer())
 
         parts.append("</div>")  # close .jcc-output
@@ -444,48 +451,95 @@ class StreamingDisplay:
         return f'<div class="jcc-footer">{" \u00b7 ".join(segments)}</div>'
 
     def _render_css(self) -> str:
-        """Return <style> block with all .jcc-* classes. Cached after first call."""
+        """Return <style> block with all .jcc-* classes. Cached after first call.
+
+        Two-layer design:
+
+        **Base layer** — neutral ``inherit``/``color-mix()``/``rgba()`` values.
+        In JupyterLab, the parent output cell is styled with ``--jp-*`` vars,
+        so ``inherit`` picks up correct themed colors automatically.
+        In bare environments, ``color-mix()`` derives proportional grays from
+        ``currentColor`` for visual hierarchy, and ``rgba()`` provides subtle
+        backgrounds/borders that work on any base color.
+
+        **VS Code layer** — scoped via ``body[data-vscode-theme-kind]``.
+        VS Code's notebook output iframe exposes ``--vscode-*`` CSS variables
+        on ``<html>`` and a ``data-vscode-theme-kind`` attribute on ``<body>``.
+        This layer explicitly reads ``--vscode-*`` for correct theme colors.
+        """
         if self._css_cache is not None:
             return self._css_cache
+
+        # fmt: off
+        # --- Shorthand aliases ---
+        # Base: neutral values (JupyterLab inherits from themed parents)
+        text1 = "inherit"
+        text2 = "color-mix(in srgb, currentColor, transparent 35%)"
+        text3 = "color-mix(in srgb, currentColor, transparent 50%)"
+        bg1   = "rgba(128,128,128,0.04)"
+        bg2   = "rgba(128,128,128,0.08)"
+        brd   = "rgba(128,128,128,0.25)"
+        brd_l = "rgba(128,128,128,0.2)"
+        brand = "#4a90d9"
+        err   = "#d32f2f"
+        warn  = "#f57c00"
+        font  = "inherit"
+        mono  = "monospace"
+        # VS Code: explicit --vscode-* variables (available in output iframe)
+        vs       = "body[data-vscode-theme-kind]"
+        vs_fg    = "var(--vscode-foreground)"
+        vs_fg2   = "var(--vscode-descriptionForeground)"
+        vs_fg3   = "var(--vscode-disabledForeground)"
+        vs_bg    = "var(--vscode-editor-background)"
+        vs_bg2   = "var(--vscode-textCodeBlock-background)"
+        vs_brd   = "var(--vscode-editorWidget-border)"
+        vs_brand = "var(--vscode-focusBorder)"
+        vs_err   = "var(--vscode-errorForeground)"
+        vs_warn  = "var(--vscode-editorWarning-foreground)"
+        vs_font  = "var(--vscode-font-family)"
+        vs_mono  = "var(--vscode-editor-font-family)"
+        # fmt: on
 
         self._css_cache = (
             "<style>"
             "@keyframes jcc-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}"
-            ".jcc-output { font-family: var(--jp-ui-font-family, -apple-system, BlinkMacSystemFont, sans-serif);"
-            " font-size: var(--jp-ui-font-size1, 13px);"
-            " color: var(--jp-ui-font-color1, #333); padding: 8px 0; }"
-            ".jcc-header { color: var(--jp-ui-font-color2, #888);"
-            " font-size: 0.85em; margin-bottom: 8px; }"
-            ".jcc-body { background: var(--jp-layout-color1, #fafafa);"
-            " border: 1px solid var(--jp-border-color2, #e0e0e0);"
-            " border-radius: 4px; padding: 8px 12px;"
-            " max-height: 400px; overflow-y: auto; }"
-            ".jcc-tool { color: var(--jp-ui-font-color2, #666);"
-            " font-size: 0.9em; padding: 1px 0;"
-            " font-family: var(--jp-code-font-family, monospace); }"
+            # --- Base layer ---
+            f".jcc-output {{ font-family: {font}; font-size: 13px;"
+            f" color: {text1}; padding: 8px 0; }}"
+            f".jcc-header {{ color: {text2}; font-size: 0.85em; margin-bottom: 8px; }}"
+            f".jcc-body {{ background: {bg1}; border: 1px solid {brd};"
+            " border-radius: 4px; padding: 8px 12px; max-height: 400px; overflow-y: auto; }"
+            f".jcc-tool {{ color: {text2}; font-size: 0.9em; padding: 1px 0; font-family: {mono}; }}"
             ".jcc-tool.done { opacity: 0.6; }"
-            ".jcc-thinking { color: var(--jp-ui-font-color3, #999);"
-            " font-style: italic; font-size: 0.85em; padding: 2px 0;"
-            " white-space: pre-wrap; }"
+            f".jcc-thinking {{ color: {text3}; font-style: italic; font-size: 0.85em;"
+            " padding: 2px 0; white-space: pre-wrap; }"
             ".jcc-content { line-height: 1.5; }"
             ".jcc-content p { margin: 0.4em 0; }"
-            ".jcc-content pre { background: var(--jp-layout-color2, #f5f5f5);"
-            " padding: 8px 12px; border-radius: 4px; overflow-x: auto; }"
-            ".jcc-content code { font-family: var(--jp-code-font-family, monospace);"
-            " font-size: 0.9em; }"
-            ".jcc-content p code { background: var(--jp-layout-color2, #f5f5f5);"
-            " padding: 1px 4px; border-radius: 3px; }"
-            ".jcc-error { color: var(--jp-error-color1, #d32f2f); margin-top: 8px; }"
-            ".jcc-interrupt { color: var(--jp-warn-color1, #f57c00); margin-top: 8px; }"
-            ".jcc-waiting { color: var(--jp-ui-font-color3, #aaa); font-style: italic; }"
-            ".jcc-spinner { display: flex; align-items: center; gap: 8px;"
-            " padding: 6px 0; color: var(--jp-ui-font-color2, #888); font-size: 0.85em; }"
-            ".jcc-spinner-dot { width: 12px; height: 12px;"
-            " border: 2px solid var(--jp-border-color1, #e0e0e0);"
-            " border-top: 2px solid var(--jp-brand-color1, #4a90d9);"
-            " border-radius: 50%; animation: jcc-spin .8s linear infinite; }"
-            ".jcc-footer { color: var(--jp-ui-font-color3, #999); font-size: 0.8em;"
-            " margin-top: 6px; }"
+            f".jcc-content pre {{ background: {bg2}; padding: 8px 12px; border-radius: 4px; overflow-x: auto; }}"
+            f".jcc-content code {{ font-family: {mono}; font-size: 0.9em; }}"
+            f".jcc-content p code {{ background: {bg2}; padding: 1px 4px; border-radius: 3px; }}"
+            f".jcc-error {{ color: {err}; margin-top: 8px; }}"
+            f".jcc-interrupt {{ color: {warn}; margin-top: 8px; }}"
+            f".jcc-waiting {{ color: {text3}; font-style: italic; }}"
+            f".jcc-spinner {{ display: flex; align-items: center; gap: 8px; padding: 6px 0; color: {text2}; font-size: 0.85em; }}"
+            f".jcc-spinner-dot {{ width: 12px; height: 12px; border: 2px solid {brd_l};"
+            f" border-top: 2px solid {brand}; border-radius: 50%; animation: jcc-spin .8s linear infinite; }}"
+            f".jcc-footer {{ color: {text3}; font-size: 0.8em; margin-top: 6px; }}"
+            # --- VS Code layer (higher specificity via body[...] ancestor) ---
+            f"{vs} .jcc-output {{ color: {vs_fg}; font-family: {vs_font}; }}"
+            f"{vs} .jcc-header {{ color: {vs_fg2}; }}"
+            f"{vs} .jcc-body {{ background: {vs_bg}; border-color: {vs_brd}; }}"
+            f"{vs} .jcc-tool {{ color: {vs_fg2}; font-family: {vs_mono}; }}"
+            f"{vs} .jcc-thinking {{ color: {vs_fg3}; }}"
+            f"{vs} .jcc-content pre {{ background: {vs_bg2}; }}"
+            f"{vs} .jcc-content code {{ font-family: {vs_mono}; }}"
+            f"{vs} .jcc-content p code {{ background: {vs_bg2}; }}"
+            f"{vs} .jcc-error {{ color: {vs_err}; }}"
+            f"{vs} .jcc-interrupt {{ color: {vs_warn}; }}"
+            f"{vs} .jcc-waiting {{ color: {vs_fg3}; }}"
+            f"{vs} .jcc-spinner {{ color: {vs_fg2}; }}"
+            f"{vs} .jcc-spinner-dot {{ border-color: {vs_brd}; border-top-color: {vs_brand}; }}"
+            f"{vs} .jcc-footer {{ color: {vs_fg3}; }}"
             "</style>"
         )
         return self._css_cache
