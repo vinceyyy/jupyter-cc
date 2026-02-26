@@ -6,6 +6,10 @@ jupyter-cc integrates Claude Code directly into Jupyter notebooks as IPython mag
 
 Built on the Claude Agent SDK with an in-process MCP server, jupyter-cc gives Claude the same agentic capabilities it has in Claude Code CLI -- file editing, shell commands, web search -- plus the ability to create notebook cells.
 
+<p align="center">
+  <img src="docs/assets/demo.jpg" alt="jupyter-cc demo: asking Claude to create a scatter plot, showing the streaming response with insights and the generated code cell below" width="720">
+</p>
+
 ## Example Session
 
 ```python
