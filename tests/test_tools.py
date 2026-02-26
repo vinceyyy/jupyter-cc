@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from jupyter_cc.tools import list_variables_impl
+import pytest
+
+from jupyter_cc.tools import inspect_variable_impl, list_variables_impl
 
 
 class TestListVariables:
@@ -44,3 +46,33 @@ class TestListVariables:
         var = next(v for v in result if v["name"] == "big")
         assert len(var["repr"]) <= 100
         assert var["repr"].endswith("...")
+
+
+class TestInspectVariable:
+    def test_inspect_basic_variable(self, mock_shell: MagicMock) -> None:
+        mock_shell.user_ns["x"] = 42
+        result = inspect_variable_impl(mock_shell, "x")
+        assert result["name"] == "x"
+        assert result["type"] == "int"
+        assert result["repr"] == "42"
+        assert "attributes" in result
+
+    def test_inspect_nonexistent_variable(self, mock_shell: MagicMock) -> None:
+        with pytest.raises(KeyError, match="not found"):
+            inspect_variable_impl(mock_shell, "missing")
+
+    def test_inspect_full_repr_not_truncated(self, mock_shell: MagicMock) -> None:
+        mock_shell.user_ns["big"] = "a" * 500
+        result = inspect_variable_impl(mock_shell, "big")
+        assert len(result["repr"]) > 100
+
+    def test_inspect_dict_shows_keys(self, mock_shell: MagicMock) -> None:
+        mock_shell.user_ns["d"] = {"a": 1, "b": 2, "c": 3}
+        result = inspect_variable_impl(mock_shell, "d")
+        assert result["extras"]["length"] == 3
+        assert result["extras"]["keys"] == ["a", "b", "c"]
+
+    def test_inspect_list_shows_length(self, mock_shell: MagicMock) -> None:
+        mock_shell.user_ns["lst"] = [1, 2, 3, 4, 5]
+        result = inspect_variable_impl(mock_shell, "lst")
+        assert result["extras"]["length"] == 5

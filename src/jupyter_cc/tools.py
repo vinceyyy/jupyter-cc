@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 import anyio
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
 
 _FILTERED_NAMES = frozenset({"In", "Out", "exit", "quit"})
 _REPR_MAX = 100
+_INSPECT_REPR_MAX = 10_000
 
 # Module-level reference set by magics.py on init
 _shell: InteractiveShell | None = None
@@ -72,3 +74,92 @@ async def list_variables_tool(args: dict[str, Any]) -> dict[str, Any]:
         lines = [f"  {v['name']}: {v['type']} = {v['repr']}" for v in variables]
         text = f"{len(variables)} variable(s):\n" + "\n".join(lines)
     return {"content": [{"type": "text", "text": text}]}
+
+
+def inspect_variable_impl(shell: InteractiveShell, name: str) -> dict[str, Any]:
+    """Return detailed info about a single variable.
+
+    Args:
+        shell: IPython shell instance with user_ns namespace.
+        name: Variable name to inspect.
+
+    Returns:
+        Dict with keys "name", "type", "repr", "attributes", "extras".
+
+    Raises:
+        KeyError: If the variable is not found in the kernel namespace.
+    """
+    if name not in shell.user_ns:
+        raise KeyError(f"Variable '{name}' not found in kernel namespace")
+
+    value = shell.user_ns[name]
+    type_name = type(value).__name__
+
+    try:
+        full_repr = repr(value)
+        if len(full_repr) > _INSPECT_REPR_MAX:
+            full_repr = full_repr[: _INSPECT_REPR_MAX - 3] + "..."
+    except Exception:
+        full_repr = f"<{type_name} object>"
+
+    attributes = [a for a in dir(value) if not a.startswith("_")]
+
+    extras: dict[str, Any] = {}
+    if hasattr(value, "shape"):
+        with suppress(Exception):
+            extras["shape"] = str(value.shape)
+    if hasattr(value, "columns"):
+        with suppress(Exception):
+            extras["columns"] = list(value.columns)
+    if hasattr(value, "dtypes"):
+        with suppress(Exception):
+            extras["dtypes"] = str(value.dtypes)
+    if isinstance(value, dict):
+        extras["length"] = len(value)
+        extras["keys"] = list(value.keys())[:50]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        extras["length"] = len(value)
+
+    return {
+        "name": name,
+        "type": type_name,
+        "repr": full_repr,
+        "attributes": attributes,
+        "extras": extras,
+    }
+
+
+@tool(
+    "inspect_variable",
+    "Get detailed information about a specific variable in the IPython kernel",
+    {"name": str},
+)
+async def inspect_variable_tool(args: dict[str, Any]) -> dict[str, Any]:
+    """MCP tool: inspect a single variable in detail."""
+    await anyio.lowlevel.checkpoint()
+    if _shell is None:
+        return {"content": [{"type": "text", "text": "Shell not available"}], "is_error": True}
+
+    name = args.get("name", "")
+    if not name:
+        return {"content": [{"type": "text", "text": "Parameter 'name' is required"}], "is_error": True}
+
+    try:
+        info = inspect_variable_impl(_shell, name)
+    except KeyError as e:
+        return {"content": [{"type": "text", "text": str(e)}], "is_error": True}
+
+    lines = [
+        f"Name: {info['name']}",
+        f"Type: {info['type']}",
+        f"Value: {info['repr']}",
+    ]
+    if info["extras"]:
+        lines.append("Details:")
+        for k, v in info["extras"].items():
+            lines.append(f"  {k}: {v}")
+    lines.append(f"Attributes: {', '.join(info['attributes'][:30])}")
+    if len(info["attributes"]) > 30:
+        lines.append(f"  ... and {len(info['attributes']) - 30} more")
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
