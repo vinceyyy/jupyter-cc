@@ -26,12 +26,14 @@ def run_ipython(code: str, timeout: int = 120) -> str:
 def test_extension_loads():
     """Extension loads without error."""
     output = run_ipython("""
+from unittest.mock import patch
 import IPython
 ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc")
+with patch("shutil.which", return_value="/usr/bin/claude"):
+    ip.run_line_magic("load_ext", "jupyter_cc")
 print("PASS: Extension loaded")
 """)
     assert "PASS: Extension loaded" in output
@@ -52,12 +54,14 @@ print("PASS")
 def test_help():
     """Help text displays correctly."""
     output = run_ipython("""
+from unittest.mock import patch
 import IPython
 ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc")
+with patch("shutil.which", return_value="/usr/bin/claude"):
+    ip.run_line_magic("load_ext", "jupyter_cc")
 ip.run_line_magic("cc", "--help")
 print("PASS")
 """)
@@ -70,12 +74,14 @@ print("PASS")
 def test_config_options():
     """Config options work."""
     output = run_ipython("""
+from unittest.mock import patch
 import IPython
 ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc")
+with patch("shutil.which", return_value="/usr/bin/claude"):
+    ip.run_line_magic("load_ext", "jupyter_cc")
 ip.run_line_magic("cc", "--max-cells 5")
 ip.run_line_magic("cc", "--model sonnet")
 ip.run_line_magic("cc", "--cells-to-load 3")
@@ -89,12 +95,14 @@ print("PASS")
 def test_magics_registered():
     """All magic commands are registered."""
     output = run_ipython("""
+from unittest.mock import patch
 import IPython
 ip = IPython.get_ipython()
 if ip is None:
     from IPython.terminal.interactiveshell import TerminalInteractiveShell
     ip = TerminalInteractiveShell.instance()
-ip.run_line_magic("load_ext", "jupyter_cc")
+with patch("shutil.which", return_value="/usr/bin/claude"):
+    ip.run_line_magic("load_ext", "jupyter_cc")
 magics = ip.magics_manager.magics
 line_magics = list(magics.get("line", {}).keys())
 for name in ["cc", "cc_new", "ccn", "cc_cur", "ccc"]:
