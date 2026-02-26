@@ -7,14 +7,15 @@ Provides %cc magic commands for agentic Claude Code integration in notebooks.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
-from .constants import HELP_TEXT
+from .constants import WELCOME_TEXT
 from .display import display_status
 from .magics import ClaudeCodeMagics
 from .watcher import CellWatcher
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "ClaudeCodeMagics",
@@ -45,20 +46,25 @@ def load_ipython_extension(ipython: object) -> None:
     if not isinstance(ipython, InteractiveShell):
         return
 
-    created = _ensure_claude_settings()
+    # Check that Claude Code CLI is on PATH (doesn't verify it's functional)
+    if not shutil.which("claude"):
+        display_status(
+            "ERROR: Claude Code CLI not found\n"
+            "\n"
+            "Install it: https://docs.anthropic.com/en/docs/claude-code\n"
+            "Then reload: %load_ext jupyter_cc",
+            kind="error",
+        )
+        return
 
-    # Security warning
-    warning_lines = [
-        "WARNING: Claude has permissions for Bash, Read, Write, Edit, WebSearch, WebFetch",
-        "",
-        "Claude can execute shell commands, read/write/edit files, and access the web.",
-        "Only use in trusted environments.",
-        "",
-    ]
-    if created:
-        warning_lines.append("Created .claude/settings.local.json with default permissions.")
-    warning_lines.append("Consider removing .claude/settings.local.json when done.")
-    display_status("\n".join(warning_lines), kind="warning")
+    _ensure_claude_settings()
+
+    # Short permissions warning
+    display_status(
+        "Claude has Bash, Read, Write, Edit, and web access. Use in trusted environments only.\n"
+        "Permissions: .claude/settings.local.json",
+        kind="warning",
+    )
 
     cell_watcher = CellWatcher(ipython)
     magics = ClaudeCodeMagics(ipython, cell_watcher)
@@ -66,4 +72,4 @@ def load_ipython_extension(ipython: object) -> None:
     ipython.events.register("pre_run_cell", cell_watcher.pre_run_cell)
     ipython.events.register("post_run_cell", cell_watcher.post_run_cell)
 
-    display_status(HELP_TEXT, kind="info")
+    display_status(WELCOME_TEXT, kind="info")
