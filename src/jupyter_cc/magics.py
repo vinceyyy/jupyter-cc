@@ -385,7 +385,7 @@ Your client's request is <request>{prompt}</request>
         if self._client_manager is not None and self._client_manager.session_id:
             options.resume = self._client_manager.session_id
 
-        # Create display in the main thread so ipywidgets are associated
+        # Create display in the main thread so display_id is associated
         # with the current cell output. The background thread only mutates
         # state; stop() renders the final result from the main thread.
         from .display import StreamingDisplay

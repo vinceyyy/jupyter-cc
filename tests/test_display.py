@@ -6,11 +6,6 @@ from jupyter_cc.constants import EXECUTE_PYTHON_TOOL_NAME
 from jupyter_cc.display import StreamingDisplay, format_tool_call
 
 
-def _make_fake_widget() -> object:
-    """Create a minimal stand-in for ipywidgets.HTML (no real kernel needed)."""
-    return type("FakeWidget", (), {"value": "", "layout": type("L", (), {"display": ""})()})()
-
-
 def test_format_tool_call_read() -> None:
     """Read tool shows file path."""
     result = format_tool_call("Read", {"file_path": "/home/user/data.csv"})
@@ -140,32 +135,42 @@ def test_render_jupyter_html_interrupt() -> None:
 def test_throttled_refresh_skips_rapid_updates() -> None:
     """Rapid calls to _refresh are throttled."""
     import time
+    from unittest.mock import patch
 
     display = StreamingDisplay(jupyter=True)
-    display._widget = _make_fake_widget()
+    display._display_id = "test-throttle"
     display._last_refresh = 0.0
 
-    display.add_text("first")
-    first_html = display._widget.value
-    assert first_html != ""
+    call_count = 0
 
-    display._last_refresh = time.monotonic()
-    display._items.append(("text", "second"))
-    display._refresh()
-    assert display._widget.value == first_html
-    assert display._dirty is True
+    def mock_update_display(*args: object, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+
+    with patch("IPython.display.update_display", mock_update_display):
+        display.add_text("first")
+        assert call_count == 1
+
+        display._last_refresh = time.monotonic()
+        display._items.append(("text", "second"))
+        display._refresh()
+        # Should be throttled — no additional update_display call
+        assert call_count == 1
+        assert display._dirty is True
 
 
 def test_streaming_display_receives_updates_during_collection() -> None:
     """Verify display methods are called, simulating the inline processing flow."""
+    from unittest.mock import patch
+
     display = StreamingDisplay(jupyter=True)
-    display._widget = _make_fake_widget()
+    display._display_id = "test-updates"
     display._last_refresh = 0.0
 
-    # Simulate what the fixed client.py does: call display inline
-    display.set_model("claude-sonnet-4-20250514")
-    display.add_text("Hello from stream")
-    display.add_tool_call("Bash", {"command": "echo hi"}, "tool-1")
+    with patch("IPython.display.update_display"):
+        display.set_model("claude-sonnet-4-20250514")
+        display.add_text("Hello from stream")
+        display.add_tool_call("Bash", {"command": "echo hi"}, "tool-1")
 
     html = display._render_jupyter_html()
     assert "claude-sonnet-4-20250514" in html
@@ -313,7 +318,7 @@ def test_body_container_in_html() -> None:
 
 
 def test_set_result_renders_footer() -> None:
-    """set_result stores metadata that renders in a footer (no cost)."""
+    """set_result stores metadata that renders in a footer after stop()."""
     display = StreamingDisplay(jupyter=True)
     display.add_text("done")
     display.set_result(
@@ -322,6 +327,8 @@ def test_set_result_renders_footer() -> None:
         usage={"input_tokens": 200, "output_tokens": 100},
         num_turns=3,
     )
+    # Footer only appears after processing completes
+    display._stopped = True
     html = display._render_jupyter_html()
     assert "jcc-footer" in html
     assert "2.5s" in html
@@ -335,6 +342,7 @@ def test_set_result_partial_metadata() -> None:
     """Footer renders gracefully with partial metadata."""
     display = StreamingDisplay(jupyter=True)
     display.set_result(duration_ms=1000)
+    display._stopped = True
     html = display._render_jupyter_html()
     assert "jcc-footer" in html
     assert "1.0s" in html
@@ -347,6 +355,7 @@ def test_set_result_single_turn() -> None:
     """Single turn shows '1 turn' (not '1 turns')."""
     display = StreamingDisplay(jupyter=True)
     display.set_result(num_turns=1)
+    display._stopped = True
     html = display._render_jupyter_html()
     assert "1 turn" in html
     assert "1 turns" not in html
