@@ -69,19 +69,3 @@ class ImageCollector:
         for i, img in enumerate(images, 1):
             lines.append(f"  {i}. {img['format']}")
         return "\n".join(lines)
-
-
-# ------------------------------------------------------------------
-# Deprecated stubs — kept temporarily so magics.py imports don't break.
-# Task 5 will update magics.py to use ImageCollector and remove these.
-# ------------------------------------------------------------------
-
-
-def extract_images_from_captured(captured_output: Any) -> list[dict[str, Any]]:  # noqa: ARG001
-    """Deprecated: use ImageCollector instead."""
-    return []
-
-
-def format_images_summary(images: list[dict[str, Any]]) -> str:  # noqa: ARG001
-    """Deprecated: use ImageCollector.format_summary instead."""
-    return ""

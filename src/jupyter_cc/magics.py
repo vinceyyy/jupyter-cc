@@ -27,10 +27,6 @@ from IPython.core.magic_arguments import argument, magic_arguments, parse_argstr
 
 import jupyter_cc.tools as _tools_module
 
-from .capture import (
-    extract_images_from_captured,
-    format_images_summary,
-)
 from .client import ClaudeClientManager
 from .config import ConfigManager
 from .display import display_status
@@ -50,6 +46,7 @@ if TYPE_CHECKING:
 
     from IPython.core.interactiveshell import InteractiveShell
 
+    from .capture import ImageCollector
     from .watcher import CellWatcher
 
 logger = logging.getLogger(__name__)
@@ -125,12 +122,15 @@ async def execute_python_tool(args: dict[str, Any]) -> dict[str, Any]:
 class ClaudeCodeMagics(Magics):
     """IPython magic for Claude Code with direct SDK integration."""
 
-    def __init__(self, shell: "InteractiveShell", cell_watcher: "CellWatcher") -> None:
+    def __init__(
+        self, shell: "InteractiveShell", cell_watcher: "CellWatcher", image_collector: "ImageCollector"
+    ) -> None:
         super().__init__(shell)
         global _magic_instance  # noqa: PLW0603
         _magic_instance = self
 
         self.cell_watcher = cell_watcher
+        self._image_collector = image_collector
         # Initialize delegated components
         self._variable_tracker = VariableTracker(shell)
         self._history_manager = HistoryManager(shell)
@@ -274,13 +274,8 @@ class ClaudeCodeMagics(Magics):
         # Reset create_python_cell_count for this turn
         self._config_manager.create_python_cell_count = 0
 
-        # Check for captured output with images
-        if self.shell is not None and "_claude_captured_output" in self.shell.user_ns:
-            captured_output = self.shell.user_ns["_claude_captured_output"]
-            captured_images = extract_images_from_captured(captured_output)
-
-            # Clean up the captured output variable
-            del self.shell.user_ns["_claude_captured_output"]
+        # Drain any images captured since last %cc call
+        captured_images = self._image_collector.drain()
 
         # Get current variables for context
         variables_info = self._variable_tracker.get_variables_info()
@@ -325,7 +320,7 @@ Your client's request is <request>{prompt}</request>
         # Build the prompt content - either as string or structured with images
         enhanced_prompt: str | list[dict[str, Any]]
         if captured_images:
-            display_status(format_images_summary(captured_images), kind="info")
+            display_status(self._image_collector.format_summary(captured_images), kind="info")
 
             # Build structured content with images
             content_blocks: list[dict[str, Any]] = []
