@@ -46,7 +46,7 @@ def load_ipython_extension(ipython: object) -> None:
     if not isinstance(ipython, InteractiveShell):
         return
 
-    # Check that Claude Code CLI is installed
+    # Check that Claude Code CLI is on PATH (doesn't verify it's functional)
     if not shutil.which("claude"):
         display_status(
             "ERROR: Claude Code CLI not found\n"

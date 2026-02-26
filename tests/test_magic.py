@@ -35,7 +35,7 @@ ip.run_line_magic("load_ext", "jupyter_cc")
 print("PASS: Extension loaded")
 """)
     assert "PASS: Extension loaded" in output
-    assert "jupyter_cc loaded" in output
+    assert "jupyter_cc ready" in output
 
 
 def test_version():
